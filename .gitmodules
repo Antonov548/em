@@ -1,0 +1,3 @@
+[submodule "treecrdt"]
+	path = treecrdt
+	url = https://github.com/cybersemics/treecrdt
