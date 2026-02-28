@@ -113,15 +113,15 @@ export const SCHEMA_THOUGHT_WITH_CHILDREN = 7 // store all children in the Thoug
 export const SCHEMA_LEMMA = 8
 export const SCHEMA_LATEST = 8
 
-// store the root string as a token that is not likely to be written by the user (bad things will happen)
-export const HOME_TOKEN = '__ROOT__' as ThoughtId
+// Well-known 32-hex-char NodeIds compatible with treecrdt.
+// HOME_TOKEN maps to treecrdt ROOT_NODE_ID_HEX. Avoid "f".repeat(32) which is treecrdt TRASH_NODE_ID_HEX.
+export const HOME_TOKEN = '00000000000000000000000000000000' as ThoughtId
 
-export const ROOT_PARENT_ID = '__ROOT_PARENT_ID__' as ThoughtId
+export const ROOT_PARENT_ID = '00000000000000000000000000000001' as ThoughtId
 
-// token for hidden system context
-export const EM_TOKEN = '__EM__' as ThoughtId
+export const EM_TOKEN = '00000000000000000000000000000002' as ThoughtId
 
-export const ABSOLUTE_TOKEN = '__ABSOLUTE__' as ThoughtId
+export const ABSOLUTE_TOKEN = '00000000000000000000000000000003' as ThoughtId
 
 export const ROOT_CONTEXTS = [HOME_TOKEN, ABSOLUTE_TOKEN]
 
