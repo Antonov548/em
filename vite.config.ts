@@ -1,3 +1,4 @@
+import { treecrdt } from '@treecrdt/wa-sqlite/vite-plugin'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
@@ -18,6 +19,7 @@ export default defineConfig({
     outDir: 'build',
   },
   plugins: [
+    treecrdt({ outDir: 'public/wa-sqlite' }),
     react(),
     // Do not run vite-plugin-checker during tests, as it will clear the test output.
     // The dev server is usually running anyway, and tsc is run in lint:tsc which is triggered prepush.

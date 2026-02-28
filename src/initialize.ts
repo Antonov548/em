@@ -21,6 +21,7 @@ import { updateThoughtsActionCreator } from './actions/updateThoughts'
 import { commandById, executeCommand } from './commands'
 import { HOME_TOKEN } from './constants'
 import getLexemeHelper from './data-providers/data-helpers/getLexeme'
+import { getTreecrdtClient, initTreecrdt } from './data-providers/treecrdt'
 import { accessToken, clientIdReady, tsid, tsidShared } from './data-providers/yjs'
 import db, { init as initThoughtspace, replicateLexeme, replicateThought } from './data-providers/yjs/thoughtspace'
 import * as selection from './device/selection'
@@ -88,7 +89,7 @@ const updateThoughtsThrottled = throttleConcat<PushBatch, void>((batches: PushBa
 export const initialize = async () => {
   initOfflineStatusStore(/* websocket */)
 
-  await initThoughtspace({
+  await Promise.all([initTreecrdt(), initThoughtspace({
     cursor: decodeThoughtsUrl(store.getState()).path,
     accessToken,
     /** Returns true if the Thought or its parent is in State. */
@@ -147,7 +148,7 @@ export const initialize = async () => {
     },
     tsid,
     tsidShared,
-  })
+  })])
 
   // load local state unless loading a public context or source url
   // await initDB()
@@ -272,6 +273,7 @@ const windowEm = {
   testFlags,
   testHelpers,
   thoughtToContext: withState((state: State, thoughtId: ThoughtId) => thoughtToContext(state, thoughtId)),
+  treecrdtClient: getTreecrdtClient,
 }
 
 window.em = windowEm

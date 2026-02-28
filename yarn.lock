@@ -6397,6 +6397,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@treecrdt/interface@link:treecrdt/packages/treecrdt-ts::locator=em%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@treecrdt/interface@link:treecrdt/packages/treecrdt-ts::locator=em%40workspace%3A."
+  languageName: node
+  linkType: soft
+
+"@treecrdt/wa-sqlite@link:treecrdt/packages/treecrdt-wa-sqlite::locator=em%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@treecrdt/wa-sqlite@link:treecrdt/packages/treecrdt-wa-sqlite::locator=em%40workspace%3A."
+  languageName: node
+  linkType: soft
+
 "@trivago/prettier-plugin-sort-imports@npm:^6.0.2":
   version: 6.0.2
   resolution: "@trivago/prettier-plugin-sort-imports@npm:6.0.2"
@@ -11398,6 +11410,8 @@ __metadata:
     "@testing-library/react": "npm:^16.3.2"
     "@testing-library/user-event": "npm:^14.6.1"
     "@total-typescript/ts-reset": "npm:^0.6.1"
+    "@treecrdt/interface": "link:treecrdt/packages/treecrdt-ts"
+    "@treecrdt/wa-sqlite": "link:treecrdt/packages/treecrdt-wa-sqlite"
     "@trivago/prettier-plugin-sort-imports": "npm:^6.0.2"
     "@types/clipboard": "npm:^2.0.10"
     "@types/dompurify": "npm:^3.2.0"
