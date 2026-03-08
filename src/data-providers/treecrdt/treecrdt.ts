@@ -7,6 +7,7 @@ export const initTreecrdt = async (): Promise<TreecrdtClient> => {
   client = await createTreecrdtClient({
     storage: 'opfs',
     docId: tsid,
+    filename: `/treecrdt-em-${tsid}.db`,
   })
   return client
 }
