@@ -21,6 +21,8 @@ import { updateThoughtsActionCreator } from './actions/updateThoughts'
 import { commandById, executeCommand } from './commands'
 import { HOME_TOKEN } from './constants'
 import getLexemeHelper from './data-providers/data-helpers/getLexeme'
+import { dumpTreecrdt } from './data-providers/treecrdt/debug'
+import { init as initTreecrdtThoughtspace } from './data-providers/treecrdt/thoughtspace'
 import { getTreecrdtClient, initTreecrdt } from './data-providers/treecrdt/treecrdt'
 import { accessToken, clientIdReady, tsid, tsidShared } from './data-providers/yjs'
 import db, { init as initThoughtspace, replicateLexeme, replicateThought } from './data-providers/yjs/thoughtspace'
@@ -89,7 +91,25 @@ const updateThoughtsThrottled = throttleConcat<PushBatch, void>((batches: PushBa
 export const initialize = async () => {
   initOfflineStatusStore(/* websocket */)
 
-  await Promise.all([initTreecrdt(), initThoughtspace({
+  // Initialize clientId before treecrdt thoughtspace (needs replicaId) and before any actions that create thoughts
+  const clientId = await clientIdReady
+
+  if (import.meta.env.MODE !== 'test') {
+    await initTreecrdt()
+    // TreeCRDT expects 32-byte replicaId; clientId is base64 of SHA-256 (44 chars) — decode to get 32 bytes
+    const replicaId =
+      clientId.length === 44
+        ? Uint8Array.from(atob(clientId), c => c.charCodeAt(0))
+        : (() => {
+            const bytes = new TextEncoder().encode(clientId)
+            const out = new Uint8Array(32)
+            out.set(bytes.subarray(0, 32))
+            return out
+          })()
+    initTreecrdtThoughtspace(replicaId)
+  }
+
+  await initThoughtspace({
     cursor: decodeThoughtsUrl(store.getState()).path,
     accessToken,
     /** Returns true if the Thought or its parent is in State. */
@@ -148,13 +168,10 @@ export const initialize = async () => {
     },
     tsid,
     tsidShared,
-  })])
+  })
 
   // load local state unless loading a public context or source url
   // await initDB()
-
-  // initialize clientId before dispatching any actions that create new thoughts
-  const clientId = await clientIdReady
 
   const src = urlDataSource()
   const thoughtsLocalPromise =
@@ -274,6 +291,22 @@ const windowEm = {
   testHelpers,
   thoughtToContext: withState((state: State, thoughtId: ThoughtId) => thoughtToContext(state, thoughtId)),
   treecrdtClient: getTreecrdtClient,
+  dumpTreecrdt: async (opts?: { includeTombstones?: boolean }) => {
+    try {
+      const rows = await dumpTreecrdt(opts)
+
+      console.table(rows)
+      return rows
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('not initialized')) {
+        console.warn('TreeCRDT not initialized (test mode?)')
+      } else {
+        throw err
+      }
+      return []
+    }
+  },
 }
 
 window.em = windowEm

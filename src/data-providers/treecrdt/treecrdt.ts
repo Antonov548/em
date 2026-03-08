@@ -5,7 +5,7 @@ let client: TreecrdtClient | null = null
 
 export const initTreecrdt = async (): Promise<TreecrdtClient> => {
   client = await createTreecrdtClient({
-    storage: 'auto',
+    storage: 'opfs',
     docId: tsid,
   })
   return client
