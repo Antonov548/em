@@ -96,6 +96,7 @@ const pushQueue: StoreEnhancer<any> =
               lexemeIndexUpdates: batch.lexemeIndexUpdates,
               lexemeIndexUpdatesOld: batch.lexemeIndexUpdatesOld,
               schemaVersion: batch.updates?.schemaVersion ?? 0,
+              movePlacements: batch.movePlacements,
             }
             // Mirror to treecrdt in parallel (fire-and-forget, never blocks)
             if (import.meta.env.MODE !== 'test') {

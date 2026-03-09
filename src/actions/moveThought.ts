@@ -1,6 +1,7 @@
 import _ from 'lodash'
 import Index from '../@types/IndexType'
 import Path from '../@types/Path'
+import ThoughtId from '../@types/ThoughtId'
 import SimplePath from '../@types/SimplePath'
 import State from '../@types/State'
 import Thought from '../@types/Thought'
@@ -36,11 +37,13 @@ export interface MoveThoughtPayload {
   skipRerank?: boolean
   /** The new rank of the destination thought. This will be ignored if the thought is moved into a sorted context. */
   newRank: number
+  /** ID of sibling after which to place (for treecrdt). Undefined = place first. Callers should provide this; fallback uses rank. */
+  afterId?: ThoughtId
 }
 
 // @MIGRATION_TODO: use (sourceId and destinationId) or simplePath instead of passing paths. Should low level handle context view logic ??
 /** Moves a thought from one context to another, or within the same context. */
-const moveThought = (state: State, { oldPath, newPath, offset, skipRerank, newRank }: MoveThoughtPayload) => {
+const moveThought = (state: State, { oldPath, newPath, offset, skipRerank, newRank, afterId }: MoveThoughtPayload) => {
   // Uncaught TypeError: Cannot perform 'IsArray' on a proxy that has been revoked at Function.isArray (#417)
   const recentlyEdited = state.recentlyEdited
   // try {
@@ -83,6 +86,8 @@ const moveThought = (state: State, { oldPath, newPath, offset, skipRerank, newRa
 
   const sameContext = sourceParentThought.id === destinationThoughtId
   const childrenOfDestination = getChildrenRanked(state, destinationThoughtId)
+  const effectiveAfterId: ThoughtId | undefined =
+    afterId ?? childrenOfDestination.filter(c => c.rank < newRank).pop()?.id ?? undefined
 
   /**
    * Find first normalized duplicate thought.
@@ -173,6 +178,7 @@ const moveThought = (state: State, { oldPath, newPath, offset, skipRerank, newRa
         lexemeIndexUpdates: {},
         recentlyEdited,
         preventExpandThoughts: true,
+        movePlacements: { [sourceThought.id]: effectiveAfterId },
       })
     },
     // update cursor if moved path is on the cursor

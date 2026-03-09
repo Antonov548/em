@@ -66,11 +66,13 @@ const getThoughtsByIds = (ids: ThoughtId[]): Promise<(Thought | undefined)[]> =>
 
 const updateThoughts = async ({
   thoughtIndexUpdates,
+  movePlacements,
 }: {
   thoughtIndexUpdates: Index<Thought | null>
   lexemeIndexUpdates: Index<Lexeme | null>
   lexemeIndexUpdatesOld: Index<Lexeme | undefined>
   schemaVersion: number
+  movePlacements?: Index<ThoughtId | undefined>
 }): Promise<void> => {
   if (!replicaId) throw new Error('TreeCRDT DataProvider: init not called')
 
@@ -105,24 +107,33 @@ const updateThoughts = async ({
 
     const exists = await client.tree.exists(thoughtId)
 
+    const placement =
+      thoughtId in (movePlacements || {})
+        ? (movePlacements![thoughtId] != null
+            ? { type: 'after' as const, after: movePlacements![thoughtId]! }
+            : { type: 'first' as const })
+        : { type: 'last' as const }
+
     if (!exists) {
       await client.local.insert(
         replicaId,
         thought.parentId === ROOT_PARENT_ID ? HOME_TOKEN : thought.parentId,
         thoughtId,
-        { type: 'last' },
+        placement,
         payloadBytes
       )
     } else {
       const existing = await getThoughtById(thoughtId)
       if (!existing) continue
 
-      if (existing.parentId !== thought.parentId) {
+      const parentChanged = existing.parentId !== thought.parentId
+      const orderChanged = thoughtId in (movePlacements || {})
+      if (parentChanged || orderChanged) {
         await client.local.move(
           replicaId,
           thoughtId,
           thought.parentId === ROOT_PARENT_ID ? HOME_TOKEN : thought.parentId,
-          { type: 'last' }
+          placement
         )
       }
 

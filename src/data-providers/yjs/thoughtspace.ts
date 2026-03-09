@@ -1043,6 +1043,7 @@ export const updateThoughts = async ({
   lexemeIndexUpdates: Index<Lexeme | null>
   lexemeIndexUpdatesOld: Index<Lexeme | undefined>
   schemaVersion: number
+  movePlacements?: Index<ThoughtId | undefined>
 }) => {
   const { updateQueue } = await config
 

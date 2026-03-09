@@ -1,3 +1,4 @@
+import { HOME_TOKEN } from '../../constants'
 import { decodeThoughtPayload } from './thoughtspace'
 import { getTreecrdtClient } from './treecrdt'
 
@@ -8,7 +9,7 @@ export type DumpTreecrdtRow = {
   parent: string | null
   tombstone: boolean
   value: string | null
-  rank: number | null
+  index: number
   created: number | null
   lastUpdated: number | null
   updatedBy: string | null
@@ -33,7 +34,6 @@ export async function dumpTreecrdt(opts: DumpTreecrdtOptions = {}): Promise<Dump
   const result: DumpTreecrdtRow[] = await Promise.all(
     filtered.map(async (row: TreeDumpRow) => {
       let value: string | null = null
-      let rank: number | null = null
       let created: number | null = null
       let lastUpdated: number | null = null
       let updatedBy: string | null = null
@@ -44,7 +44,6 @@ export async function dumpTreecrdt(opts: DumpTreecrdtOptions = {}): Promise<Dump
         try {
           const payload = decodeThoughtPayload(payloadBytes)
           value = payload.value
-          rank = payload.rank
           created = payload.created
           lastUpdated = payload.lastUpdated
           updatedBy = payload.updatedBy
@@ -54,12 +53,16 @@ export async function dumpTreecrdt(opts: DumpTreecrdtOptions = {}): Promise<Dump
         }
       }
 
+      const parentId = row.parent ?? HOME_TOKEN
+      const children = await client.tree.children(parentId)
+      const index = row.parent === null ? 0 : children.indexOf(row.node)
+
       return {
         id: row.node,
         parent: row.parent,
         tombstone: row.tombstone,
         value,
-        rank,
+        index,
         created,
         lastUpdated,
         updatedBy,

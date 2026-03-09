@@ -71,6 +71,9 @@ const moveThoughtUp = (state: State): State => {
     newPath,
     ...(offset != null ? { offset } : null),
     newRank: rankNew,
+    afterId: prevThought
+      ? prevSibling(state, appendToPath(pathParent, prevThought.id))?.id ?? undefined
+      : undefined,
   })
 }
 
