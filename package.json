@@ -62,7 +62,8 @@
       "git+https:",
       "npm:",
       "patch:",
-      "workspace:"
+      "workspace:",
+      "link:"
     ],
     "allowed-hosts": [
       "codeload.github.com",
