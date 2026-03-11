@@ -5,7 +5,7 @@ import type ThoughtId from '../../@types/ThoughtId'
 import type Timestamp from '../../@types/Timestamp'
 import type { DataProvider } from '../DataProvider'
 import { getTreecrdtClient } from './treecrdt'
-import { HOME_TOKEN, ROOT_PARENT_ID } from '../../constants'
+import { ABSOLUTE_TOKEN, EM_TOKEN, GLOBAL_ROOT_TOKEN, HOME_TOKEN, ROOT_PARENT_ID } from '../../constants'
 
 export type ThoughtPayload = {
   value: string
@@ -117,7 +117,7 @@ const updateThoughts = async ({
     if (!exists) {
       await client.local.insert(
         replicaId,
-        thought.parentId === ROOT_PARENT_ID ? HOME_TOKEN : thought.parentId,
+        thought.parentId === ROOT_PARENT_ID ? GLOBAL_ROOT_TOKEN : thought.parentId,
         thoughtId,
         placement,
         payloadBytes
@@ -132,7 +132,7 @@ const updateThoughts = async ({
         await client.local.move(
           replicaId,
           thoughtId,
-          thought.parentId === ROOT_PARENT_ID ? HOME_TOKEN : thought.parentId,
+          thought.parentId === ROOT_PARENT_ID ? GLOBAL_ROOT_TOKEN : thought.parentId,
           placement
         )
       }
@@ -173,7 +173,7 @@ const clear = async (): Promise<void> => {
     }
   }
 
-  await deleteSubtree(HOME_TOKEN)
+  await deleteSubtree(GLOBAL_ROOT_TOKEN)
 }
 
 const getLexemeById = async (_key: string): Promise<Lexeme | undefined> => undefined
@@ -181,8 +181,36 @@ const getLexemeById = async (_key: string): Promise<Lexeme | undefined> => undef
 const getLexemesByIds = async (keys: string[]): Promise<(Lexeme | undefined)[]> =>
   Promise.resolve(keys.map(() => undefined))
 
-export const init = (replicaIdArg: Uint8Array): void => {
+const ROOT_PAYLOAD = encodeThoughtPayload({
+  value: GLOBAL_ROOT_TOKEN,
+  rank: 0,
+  created: 0,
+  lastUpdated: 0,
+  updatedBy: '',
+})
+
+export const init = async (replicaIdArg: Uint8Array): Promise<void> => {
   replicaId = replicaIdArg
+  const client = getTreecrdtClient()
+  // Ensure root has payload so getThoughtById can use the generic path
+  await client.local.payload(replicaIdArg, GLOBAL_ROOT_TOKEN, ROOT_PAYLOAD)
+  for (const id of [HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN]) {
+    if (!(await client.tree.exists(id))) {
+      await client.local.insert(
+        replicaId,
+        GLOBAL_ROOT_TOKEN,
+        id,
+        { type: 'last' },
+        encodeThoughtPayload({
+          value: id,
+          rank: 0,
+          created: Date.now(),
+          lastUpdated: Date.now(),
+          updatedBy: '',
+        })
+      )
+    }
+  }
 }
 
 const thoughtspaceDataProvider: DataProvider<[Uint8Array]> = {

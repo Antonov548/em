@@ -5,8 +5,7 @@ import PushBatch from '../@types/PushBatch'
 import State from '../@types/State'
 import ThoughtId from '../@types/ThoughtId'
 import { CACHED_SETTINGS, EM_TOKEN } from '../constants'
-import db from '../data-providers/yjs/thoughtspace'
-import treecrdtThoughtspace from '../data-providers/treecrdt/thoughtspace'
+import db from '../data-providers/treecrdt/thoughtspace'
 import contextToThoughtId from '../selectors/contextToThoughtId'
 import { getChildrenRanked } from '../selectors/getChildren'
 import getThoughtById from '../selectors/getThoughtById'
@@ -97,12 +96,6 @@ const pushQueue: StoreEnhancer<any> =
               lexemeIndexUpdatesOld: batch.lexemeIndexUpdatesOld,
               schemaVersion: batch.updates?.schemaVersion ?? 0,
               movePlacements: batch.movePlacements,
-            }
-            // Mirror to treecrdt in parallel (fire-and-forget, never blocks)
-            if (import.meta.env.MODE !== 'test') {
-              void treecrdtThoughtspace.updateThoughts(batchPayload).catch(err =>
-                console.error('TreeCRDT mirror:', err),
-              )
             }
             await db.updateThoughts(batchPayload)
           }

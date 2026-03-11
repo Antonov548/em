@@ -4,7 +4,7 @@ import Share from '../../@types/Share'
 import { alertActionCreator as alert } from '../../actions/alert'
 import { clearActionCreator } from '../../actions/clear'
 import { accessTokenLocal, permissionsClientDoc } from '../../data-providers/yjs/index'
-import { clear } from '../../data-providers/yjs/thoughtspace'
+import db from '../../data-providers/treecrdt/thoughtspace'
 import store from '../../stores/app'
 import storage from '../../util/storage'
 import timestamp from '../../util/timestamp'
@@ -38,7 +38,8 @@ const permissionsModel: { [key in keyof Routes['share']]: any } = {
     // remove last device
     else {
       storage.clear()
-      clear()
+      // TODO: check if it possible to make async and wait
+      void db.clear().catch(err => console.error('Failed to clear thoughtspace:', err))
       store.dispatch(clearActionCreator())
 
       // TODO: Do a full reset without refreshing the page.

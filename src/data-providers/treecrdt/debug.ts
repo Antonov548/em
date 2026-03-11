@@ -1,4 +1,4 @@
-import { HOME_TOKEN } from '../../constants'
+import { GLOBAL_ROOT_TOKEN } from '../../constants'
 import { decodeThoughtPayload } from './thoughtspace'
 import { getTreecrdtClient } from './treecrdt'
 
@@ -10,10 +10,6 @@ export type DumpTreecrdtRow = {
   tombstone: boolean
   value: string | null
   index: number
-  created: number | null
-  lastUpdated: number | null
-  updatedBy: string | null
-  archived: number | null
 }
 
 export type DumpTreecrdtOptions = {
@@ -34,26 +30,18 @@ export async function dumpTreecrdt(opts: DumpTreecrdtOptions = {}): Promise<Dump
   const result: DumpTreecrdtRow[] = await Promise.all(
     filtered.map(async (row: TreeDumpRow) => {
       let value: string | null = null
-      let created: number | null = null
-      let lastUpdated: number | null = null
-      let updatedBy: string | null = null
-      let archived: number | null = null
 
       const payloadBytes = await client.tree.getPayload(row.node)
       if (payloadBytes !== null && payloadBytes.length > 0) {
         try {
           const payload = decodeThoughtPayload(payloadBytes)
           value = payload.value
-          created = payload.created
-          lastUpdated = payload.lastUpdated
-          updatedBy = payload.updatedBy
-          archived = payload.archived ?? null
         } catch {
           value = '[parse error]'
         }
       }
 
-      const parentId = row.parent ?? HOME_TOKEN
+      const parentId = row.parent ?? GLOBAL_ROOT_TOKEN
       const children = await client.tree.children(parentId)
       const index = row.parent === null ? 0 : children.indexOf(row.node)
 
@@ -63,10 +51,6 @@ export async function dumpTreecrdt(opts: DumpTreecrdtOptions = {}): Promise<Dump
         tombstone: row.tombstone,
         value,
         index,
-        created,
-        lastUpdated,
-        updatedBy,
-        archived,
       }
     }),
   )
