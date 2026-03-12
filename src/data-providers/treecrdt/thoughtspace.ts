@@ -3,9 +3,9 @@ import type Lexeme from '../../@types/Lexeme'
 import type Thought from '../../@types/Thought'
 import type ThoughtId from '../../@types/ThoughtId'
 import type Timestamp from '../../@types/Timestamp'
+import { ABSOLUTE_TOKEN, EM_TOKEN, GLOBAL_ROOT_TOKEN, HOME_TOKEN, ROOT_PARENT_ID } from '../../constants'
 import type { DataProvider } from '../DataProvider'
 import { getTreecrdtClient } from './treecrdt'
-import { ABSOLUTE_TOKEN, EM_TOKEN, GLOBAL_ROOT_TOKEN, HOME_TOKEN, ROOT_PARENT_ID } from '../../constants'
 
 export type ThoughtPayload = {
   value: string
@@ -19,16 +19,19 @@ export type ThoughtPayload = {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
+/** Encodes a thought payload to bytes. */
 export function encodeThoughtPayload(payload: ThoughtPayload): Uint8Array {
   return encoder.encode(JSON.stringify(payload))
 }
 
+/** Decodes bytes to a thought payload. */
 export function decodeThoughtPayload(bytes: Uint8Array): ThoughtPayload {
   return JSON.parse(decoder.decode(bytes)) as ThoughtPayload
 }
 
 let replicaId: Uint8Array | null = null
 
+/** Fetches a thought by ID from the tree. */
 const getThoughtById = async (id: ThoughtId): Promise<Thought | undefined> => {
   const client = getTreecrdtClient()
 
@@ -61,9 +64,10 @@ const getThoughtById = async (id: ThoughtId): Promise<Thought | undefined> => {
   return thought
 }
 
-const getThoughtsByIds = (ids: ThoughtId[]): Promise<(Thought | undefined)[]> =>
-  Promise.all(ids.map(getThoughtById))
+/** Fetches multiple thoughts by IDs. */
+const getThoughtsByIds = (ids: ThoughtId[]): Promise<(Thought | undefined)[]> => Promise.all(ids.map(getThoughtById))
 
+/** Applies thought index updates and move placements to the tree. */
 const updateThoughts = async ({
   thoughtIndexUpdates,
   movePlacements,
@@ -109,9 +113,9 @@ const updateThoughts = async ({
 
     const placement =
       thoughtId in (movePlacements || {})
-        ? (movePlacements![thoughtId] != null
-            ? { type: 'after' as const, after: movePlacements![thoughtId]! }
-            : { type: 'first' as const })
+        ? movePlacements![thoughtId] != null
+          ? { type: 'after' as const, after: movePlacements![thoughtId]! }
+          : { type: 'first' as const }
         : { type: 'last' as const }
 
     if (!exists) {
@@ -120,7 +124,7 @@ const updateThoughts = async ({
         thought.parentId === ROOT_PARENT_ID ? GLOBAL_ROOT_TOKEN : thought.parentId,
         thoughtId,
         placement,
-        payloadBytes
+        payloadBytes,
       )
     } else {
       const existing = await getThoughtById(thoughtId)
@@ -133,7 +137,7 @@ const updateThoughts = async ({
           replicaId,
           thoughtId,
           thought.parentId === ROOT_PARENT_ID ? GLOBAL_ROOT_TOKEN : thought.parentId,
-          placement
+          placement,
         )
       }
 
@@ -152,19 +156,23 @@ const updateThoughts = async ({
   }
 }
 
+/** No-op for freeing a thought. */
 const freeThought = async (_id: ThoughtId): Promise<void> => {
   // no-op
 }
 
+/** No-op for freeing a lexeme. */
 const freeLexeme = async (_key: string): Promise<void> => {
   // no-op
 }
 
+/** Clears all thoughts from the tree. */
 const clear = async (): Promise<void> => {
   if (!replicaId) throw new Error('TreeCRDT DataProvider: init not called')
 
   const client = getTreecrdtClient()
 
+  /** Recursively deletes a subtree. */
   async function deleteSubtree(parentId: string): Promise<void> {
     const children = await client.tree.children(parentId)
     for (const childId of children) {
@@ -176,8 +184,10 @@ const clear = async (): Promise<void> => {
   await deleteSubtree(GLOBAL_ROOT_TOKEN)
 }
 
+/** Returns undefined as lexemes are not stored in treecrdt. */
 const getLexemeById = async (_key: string): Promise<Lexeme | undefined> => undefined
 
+/** Returns undefined for each key as lexemes are not stored in treecrdt. */
 const getLexemesByIds = async (keys: string[]): Promise<(Lexeme | undefined)[]> =>
   Promise.resolve(keys.map(() => undefined))
 
@@ -189,6 +199,7 @@ const ROOT_PAYLOAD = encodeThoughtPayload({
   updatedBy: '',
 })
 
+/** Initializes the thoughtspace with the given replica ID. */
 export const init = async (replicaIdArg: Uint8Array): Promise<void> => {
   replicaId = replicaIdArg
   const client = getTreecrdtClient()
@@ -207,12 +218,13 @@ export const init = async (replicaIdArg: Uint8Array): Promise<void> => {
           created: Date.now(),
           lastUpdated: Date.now(),
           updatedBy: '',
-        })
+        }),
       )
     }
   }
 }
 
+/** TreeCRDT data provider for thoughtspace. */
 const thoughtspaceDataProvider: DataProvider<[Uint8Array]> = {
   name: 'treecrdt',
   init,

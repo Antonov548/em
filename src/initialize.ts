@@ -203,6 +203,7 @@ const windowEm = {
     try {
       const rows = await dumpTreecrdt(opts)
 
+      // eslint-disable-next-line no-console -- table format for dumpTreecrdt debug output
       console.table(rows)
       return rows
     } catch (err) {

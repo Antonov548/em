@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import React, { useState } from 'react'
 import { css } from '../../styled-system/css'
 import { token } from '../../styled-system/tokens'
@@ -5,7 +6,6 @@ import { SystemStyleObject } from '../../styled-system/types'
 import Direction from '../@types/Direction'
 import Gesture from '../@types/Gesture'
 import { GESTURE_GLOW_BLUR, GESTURE_GLOW_COLOR } from '../constants'
-import { nanoid } from 'nanoid'
 
 interface GestureDiagramProps {
   arrowSize?: number
