@@ -27,6 +27,8 @@ export type ThoughtPayload = {
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
+const ROOT_THOUGHT_IDS = new Set<string>([GLOBAL_ROOT_TOKEN, ROOT_PARENT_ID, HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN])
+const ROOT_BOOTSTRAP_REPLICA_ID_PREFIX = encoder.encode('em-treecrdt-root-bootstrap-v1')
 
 /** Encodes a thought payload to bytes. */
 export function encodeThoughtPayload(payload: ThoughtPayload): Uint8Array {
@@ -147,7 +149,7 @@ const updateThoughts = async ({
           payloadBytes,
         ),
       )
-    } else {
+    } else if (!ROOT_THOUGHT_IDS.has(thoughtId)) {
       const existing = await getThoughtById(thoughtId)
       if (!existing) continue
 
@@ -229,28 +231,36 @@ const ROOT_PAYLOAD = encodeThoughtPayload({
   updatedBy: '',
 })
 
+/** Returns the deterministic replica ID used for fixed EM root bootstrap ops. */
+const rootBootstrapReplicaId = (): Uint8Array => {
+  const id = new Uint8Array(32)
+  id.set(ROOT_BOOTSTRAP_REPLICA_ID_PREFIX)
+  return id
+}
+
+/** Encodes a deterministic payload for fixed EM root thoughts. */
+const rootThoughtPayload = (id: string): Uint8Array =>
+  encodeThoughtPayload({
+    value: id,
+    rank: 0,
+    created: 0,
+    lastUpdated: 0,
+    updatedBy: '',
+  })
+
 /** Initializes the thoughtspace with the given replica ID. */
 export const init = async (replicaIdArg: Uint8Array): Promise<void> => {
   replicaId = replicaIdArg
   const client = getTreecrdtClient()
   await ensureLexemesSchema(client)
+  const bootstrapReplicaId = rootBootstrapReplicaId()
   // Ensure root has payload so getThoughtById can use the generic path
-  await client.local.payload(replicaIdArg, GLOBAL_ROOT_TOKEN, ROOT_PAYLOAD)
+  if ((await client.tree.getPayload(GLOBAL_ROOT_TOKEN)) === null) {
+    await client.local.payload(bootstrapReplicaId, GLOBAL_ROOT_TOKEN, ROOT_PAYLOAD)
+  }
   for (const id of [HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN]) {
     if (!(await client.tree.exists(id))) {
-      await client.local.insert(
-        replicaId,
-        GLOBAL_ROOT_TOKEN,
-        id,
-        { type: 'last' },
-        encodeThoughtPayload({
-          value: id,
-          rank: 0,
-          created: Date.now(),
-          lastUpdated: Date.now(),
-          updatedBy: '',
-        }),
-      )
+      await client.local.insert(bootstrapReplicaId, GLOBAL_ROOT_TOKEN, id, { type: 'last' }, rootThoughtPayload(id))
     }
   }
 }

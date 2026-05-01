@@ -16,12 +16,21 @@ export async function applyMaterializedThoughtsToStore(
 ): Promise<void> {
   if (event.changes.length === 0) return
 
+  const stateBefore = store.getState()
   const { deletedIds, thoughts, lexemeIndexUpdates } = await refreshThoughtsFromMaterializationChanges(
     event.changes,
     thoughtspaceDb,
+    stateBefore,
   )
 
   if (Object.keys(lexemeIndexUpdates).length > 0) {
+    await thoughtspaceDb.updateThoughts({
+      thoughtIndexUpdates: {},
+      lexemeIndexUpdates,
+      lexemeIndexUpdatesOld: {},
+      schemaVersion: stateBefore.schemaVersion,
+    })
+
     store.dispatch(
       updateThoughtsActionCreator({
         thoughtIndexUpdates: {},
