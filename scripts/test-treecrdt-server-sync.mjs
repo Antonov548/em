@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import net from 'node:net'
 import process from 'node:process'
 import puppeteer from 'puppeteer'
-import { startWebSocketSyncServer } from '../treecrdt/packages/sync-protocol/server/core/dist/server.js'
+import { startWebSocketSyncServer } from '@treecrdt/sync-server-core'
 
 const HOME_TOKEN = '00000000000000000000000000000001'
 const EM_TOKEN = '00000000000000000000000000000002'
