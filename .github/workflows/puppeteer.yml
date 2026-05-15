@@ -34,8 +34,6 @@ jobs:
     steps:
       - name: Clone repository
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Enable Corepack
         run: corepack enable
@@ -47,21 +45,6 @@ jobs:
 
       - name: Install npm dependencies
         run: yarn
-
-      - name: Install wasm-pack
-        run: |
-          if ! command -v wasm-pack >/dev/null 2>&1; then
-            curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-          fi
-
-      - name: Install Emscripten Rust target
-        run: rustup target add wasm32-unknown-emscripten
-
-      - name: Set up Emscripten
-        uses: mymindstorm/setup-emsdk@v14
-
-      - name: Build TreeCRDT packages
-        run: yarn treecrdt
 
       - name: Start SSL proxy
         run: docker run -d --rm --add-host=host.docker.internal:host-gateway -e "PORT=3000" -p 2552:443 esplo/docker-local-ssl-termination-proxy
