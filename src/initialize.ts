@@ -23,7 +23,7 @@ import {
 } from './data-providers/treecrdt/sync'
 import db, { init as initTreecrdtThoughtspace } from './data-providers/treecrdt/thoughtspace'
 import { getTreecrdtClient, initTreecrdt, registerBeforeTreecrdtClose } from './data-providers/treecrdt/treecrdt'
-import { isTreecrdtLocalWriteInProgress, waitForTreecrdtWriteBarrier } from './data-providers/treecrdt/writeBarrier'
+import { isTreecrdtLocalMaterialization, waitForTreecrdtWriteBarrier } from './data-providers/treecrdt/writeBarrier'
 import * as selection from './device/selection'
 import testFlags from './e2e/testFlags'
 import contextToThoughtId from './selectors/contextToThoughtId'
@@ -114,8 +114,8 @@ const initializeInternal = async () => {
 
   const unsubscribeMaterialized = treecrdtClient.onMaterialized(event => {
     // Local TreeCRDT writes are already reflected optimistically in Redux. Peer-tab and server-sync writes arrive
-    // outside this local-write scope, so those materialization events must be read back into Redux.
-    if (isTreecrdtLocalWriteInProgress()) return
+    // without this tab's write id, so those materialization events must be read back into Redux.
+    if (isTreecrdtLocalMaterialization(event)) return
 
     void enqueueMaterializedThoughtsToStore(event).catch(err =>
       console.error('TreeCRDT materialized UI sync failed', err),

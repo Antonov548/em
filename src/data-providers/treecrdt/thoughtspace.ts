@@ -15,7 +15,7 @@ import {
   upsertLexeme,
 } from './lexemes'
 import { dropTreecrdt, getTreecrdtClient } from './treecrdt'
-import { withTreecrdtLocalWrite } from './writeBarrier'
+import { createTreecrdtLocalWriteOptions } from './writeBarrier'
 
 export type ThoughtPayload = {
   value: string
@@ -231,7 +231,7 @@ const updateThoughts = async ({
   }
 
   for (const id of deletes) {
-    ops.push(await withTreecrdtLocalWrite(() => client.local.delete(activeReplicaId, id)))
+    ops.push(await client.local.delete(activeReplicaId, id, createTreecrdtLocalWriteOptions()))
   }
 
   for (const [id, thought] of Object.entries(updates)) {
@@ -251,8 +251,13 @@ const updateThoughts = async ({
     if (!exists) {
       const placement = await getTreecrdtPlacement(thoughtId, thought, movePlacements)
       ops.push(
-        await withTreecrdtLocalWrite(() =>
-          client.local.insert(activeReplicaId, parentId, thoughtId, placement, payloadBytes),
+        await client.local.insert(
+          activeReplicaId,
+          parentId,
+          thoughtId,
+          placement,
+          payloadBytes,
+          createTreecrdtLocalWriteOptions(),
         ),
       )
     } else {
@@ -263,7 +268,9 @@ const updateThoughts = async ({
       const orderChanged = thoughtId in (movePlacements || {})
       if (parentChanged || orderChanged) {
         const placement = await getTreecrdtPlacement(thoughtId, thought, movePlacements)
-        ops.push(await withTreecrdtLocalWrite(() => client.local.move(activeReplicaId, thoughtId, parentId, placement)))
+        ops.push(
+          await client.local.move(activeReplicaId, thoughtId, parentId, placement, createTreecrdtLocalWriteOptions()),
+        )
       }
 
       const payloadChanged =
@@ -275,7 +282,9 @@ const updateThoughts = async ({
         existing.archived !== thought.archived
 
       if (payloadChanged) {
-        ops.push(await withTreecrdtLocalWrite(() => client.local.payload(activeReplicaId, thoughtId, payloadBytes)))
+        ops.push(
+          await client.local.payload(activeReplicaId, thoughtId, payloadBytes, createTreecrdtLocalWriteOptions()),
+        )
       }
     }
   }

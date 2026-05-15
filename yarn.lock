@@ -4294,7 +4294,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@justtemporary/interface@npm:0.1.0, @treecrdt/interface@npm:@justtemporary/interface@0.1.0":
+"@justtemporary/interface@npm:0.1.0":
   version: 0.1.0
   resolution: "@justtemporary/interface@npm:0.1.0"
   checksum: 10c0/82d0ef4e70379861816d18d56dbe75fa0eaf73c0f69c883e88d779aa8ec85a1902eef0f26bc7fb1b9ea16de6c191698c89a4e2dd55d625cd2fd6403458684b94
@@ -6799,6 +6799,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@treecrdt/interface@npm:@justtemporary/interface@0.1.1":
+  version: 0.1.1
+  resolution: "@justtemporary/interface@npm:0.1.1"
+  checksum: 10c0/52fca36eda542b02aaa9b8655a02290e607497212e2bcfaf13ff5b9cf9e8029bb2612b370c2812ebf3caa86ff86eb8c58f28b1e366be41381e1b5f3956f54de6
+  languageName: node
+  linkType: hard
+
 "@treecrdt/sync-server-core@npm:@justtemporary/sync-server-core@0.1.0":
   version: 0.1.0
   resolution: "@justtemporary/sync-server-core@npm:0.1.0"
@@ -6821,13 +6828,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@treecrdt/wa-sqlite@npm:@justtemporary/wa-sqlite@0.1.2":
-  version: 0.1.2
-  resolution: "@justtemporary/wa-sqlite@npm:0.1.2"
+"@treecrdt/wa-sqlite@npm:@justtemporary/wa-sqlite@0.1.7":
+  version: 0.1.7
+  resolution: "@justtemporary/wa-sqlite@npm:0.1.7"
   dependencies:
-    "@justtemporary/interface": "npm:0.1.0"
-    "@justtemporary/sync-sqlite": "npm:0.1.0"
-  checksum: 10c0/ec484af0e1c05c64d02f2f5516f1685d372516755f9cf4ea7a361a005070ac1bbd923943a22fd308b7260c20d6b66b8798ba65cc6574521298aeaefbff83a460
+    "@treecrdt/interface": "npm:@justtemporary/interface@0.1.1"
+    "@treecrdt/sync-sqlite": "npm:@justtemporary/sync-sqlite@0.1.0"
+  checksum: 10c0/ea7b29342f84b6b31d958a0b21d48866bd736ecfd58329ebf1423dad6138d868f7c796c035af3e860db7791e040e5a80bfbecbd9e7d0b0f3307dc1dd3fa97911
   languageName: node
   linkType: hard
 
@@ -11609,13 +11616,13 @@ __metadata:
     "@total-typescript/ts-reset": "npm:^0.6.1"
     "@treecrdt/auth": "npm:@justtemporary/auth@0.1.0"
     "@treecrdt/discovery": "npm:@justtemporary/discovery@0.1.0"
-    "@treecrdt/interface": "npm:@justtemporary/interface@0.1.0"
+    "@treecrdt/interface": "npm:@justtemporary/interface@0.1.1"
     "@treecrdt/riblt-wasm": "npm:@justtemporary/riblt-wasm@0.1.0"
     "@treecrdt/sync": "npm:@justtemporary/sync@0.1.0"
     "@treecrdt/sync-protocol": "npm:@justtemporary/sync-protocol@0.1.0"
     "@treecrdt/sync-server-core": "npm:@justtemporary/sync-server-core@0.1.0"
     "@treecrdt/sync-sqlite": "npm:@justtemporary/sync-sqlite@0.1.0"
-    "@treecrdt/wa-sqlite": "npm:@justtemporary/wa-sqlite@0.1.2"
+    "@treecrdt/wa-sqlite": "npm:@justtemporary/wa-sqlite@0.1.7"
     "@trivago/prettier-plugin-sort-imports": "npm:^6.0.2"
     "@types/clipboard": "npm:^2.0.10"
     "@types/dompurify": "npm:^3.2.0"
