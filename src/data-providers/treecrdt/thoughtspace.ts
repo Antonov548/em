@@ -41,9 +41,43 @@ export function decodeThoughtPayload(bytes: Uint8Array): ThoughtPayload {
 }
 
 let replicaId: Uint8Array | null = null
+// Unit tests exercise the DataProvider contract without loading wa-sqlite/OPFS browser assets.
+// Keep this path test-only; browser/runtime coverage uses the real TreeCRDT client.
+let testThoughtIndex: Index<Thought> = {}
+let testLexemeIndex: Index<Lexeme> = {}
+
+/** Checks if the current runtime is Vitest. */
+const isTestMode = (): boolean => import.meta.env.MODE === 'test'
+
+/** Ensures the fixed root thoughts exist in the test provider. */
+const ensureTestRootThoughts = (): void => {
+  for (const id of [HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN]) {
+    if (testThoughtIndex[id]) continue
+    testThoughtIndex[id] = {
+      id,
+      value: id,
+      rank: 0,
+      created: 0 as Timestamp,
+      lastUpdated: 0 as Timestamp,
+      updatedBy: '',
+      parentId: ROOT_PARENT_ID,
+      childrenMap: {},
+    }
+  }
+}
+
+/** Resets the in-memory TreeCRDT provider used by unit tests. */
+export const resetTestThoughtspace = (): void => {
+  if (!isTestMode()) return
+  testThoughtIndex = {}
+  testLexemeIndex = {}
+  replicaId = null
+}
 
 /** Fetches a thought by ID from the tree. */
 const getThoughtById = async (id: ThoughtId): Promise<Thought | undefined> => {
+  if (isTestMode()) return testThoughtIndex[id]
+
   const client = getTreecrdtClient()
 
   const payloadBytes = await client.tree.getPayload(id)
@@ -90,7 +124,30 @@ const updateThoughts = async ({
   schemaVersion: number
   movePlacements?: Index<ThoughtId | undefined>
 }): Promise<readonly Operation[]> => {
-  if (!replicaId) throw new Error('TreeCRDT DataProvider: init not called')
+  if (!replicaId) {
+    if (isTestMode()) return []
+    throw new Error('TreeCRDT DataProvider: init not called')
+  }
+
+  if (isTestMode()) {
+    for (const [id, lexeme] of Object.entries(lexemeIndexUpdates)) {
+      if (lexeme === null) {
+        delete testLexemeIndex[id]
+      } else {
+        testLexemeIndex[id] = lexeme
+      }
+    }
+
+    for (const [id, thought] of Object.entries(thoughtIndexUpdates)) {
+      if (thought === null) {
+        delete testThoughtIndex[id]
+      } else {
+        testThoughtIndex[id] = thought
+      }
+    }
+
+    return []
+  }
 
   const client = getTreecrdtClient()
   const ops: Operation[] = []
@@ -190,13 +247,29 @@ const freeThought = async (_id: ThoughtId): Promise<void> => {
 
 /** Removes a lexeme row from SQLite. */
 const freeLexeme = async (key: string): Promise<void> => {
+  if (isTestMode()) {
+    delete testLexemeIndex[key]
+    return
+  }
+
   const client = getTreecrdtClient()
   await deleteLexemeRow(client, key)
 }
 
 /** Clears all thoughts by dropping storage and closing the client. */
 const clear = async (): Promise<void> => {
-  if (!replicaId) throw new Error('TreeCRDT DataProvider: init not called')
+  if (!replicaId) {
+    if (isTestMode()) {
+      resetTestThoughtspace()
+      return
+    }
+    throw new Error('TreeCRDT DataProvider: init not called')
+  }
+
+  if (isTestMode()) {
+    resetTestThoughtspace()
+    return
+  }
 
   await dropTreecrdt()
   replicaId = null
@@ -204,18 +277,27 @@ const clear = async (): Promise<void> => {
 
 /** Loads a lexeme by hash key from database. */
 const getLexemeById = async (key: string): Promise<Lexeme | undefined> => {
+  if (isTestMode()) return testLexemeIndex[key]
+
   const client = getTreecrdtClient()
   return getLexemeByIdSql(client, key)
 }
 
 /** Loads lexemes for hash keys in parallel order. */
 const getLexemesByIds = async (keys: string[]): Promise<(Lexeme | undefined)[]> => {
+  if (isTestMode()) return keys.map(key => testLexemeIndex[key])
+
   const client = getTreecrdtClient()
   return getLexemesByIdsSql(client, keys)
 }
 
 /** Replaces all stored lexemes with the given index (tests / provider hook). */
 const updateLexemeIndex = async (lexemeIndex: Index<Lexeme>): Promise<void> => {
+  if (isTestMode()) {
+    testLexemeIndex = { ...lexemeIndex }
+    return
+  }
+
   const client = getTreecrdtClient()
   await deleteAllLexemes(client)
   for (const [id, lexeme] of Object.entries(lexemeIndex)) {
@@ -251,6 +333,11 @@ const rootThoughtPayload = (id: string): Uint8Array =>
 /** Initializes the thoughtspace with the given replica ID. */
 export const init = async (replicaIdArg: Uint8Array): Promise<void> => {
   replicaId = replicaIdArg
+  if (isTestMode()) {
+    ensureTestRootThoughts()
+    return
+  }
+
   const client = getTreecrdtClient()
   await ensureLexemesSchema(client)
   const bootstrapReplicaId = rootBootstrapReplicaId()
