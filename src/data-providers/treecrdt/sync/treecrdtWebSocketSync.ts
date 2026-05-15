@@ -10,6 +10,7 @@ import { getTreecrdtSyncBaseUrl } from './config'
 let syncHandle: TreecrdtWebSocketSync | null = null
 let removeCloseHook: (() => void) | null = null
 let materializedUnsub: (() => void) | null = null
+let pendingLocalOps: Operation[] = []
 
 export type TreecrdtWebSocketSyncOptions = {
   /** Called for each non-deleted thought after remote materialization; use to update Redux (e.g. pending flags). */
@@ -22,9 +23,24 @@ export async function stopTreecrdtWebSocketSync(): Promise<void> {
   materializedUnsub = null
   removeCloseHook?.()
   removeCloseHook = null
+  pendingLocalOps = []
   if (syncHandle) {
     await syncHandle.close()
     syncHandle = null
+  }
+}
+
+/** Uploads local ops that were produced before the WebSocket sync handle was ready. */
+async function flushPendingLocalOps(): Promise<void> {
+  if (!syncHandle || pendingLocalOps.length === 0) return
+
+  const ops = pendingLocalOps
+  pendingLocalOps = []
+  try {
+    await syncHandle.pushLocalOps(ops)
+  } catch (err) {
+    pendingLocalOps = [...ops, ...pendingLocalOps]
+    console.warn('TreeCRDT pushLocalOps failed', err)
   }
 }
 
@@ -64,11 +80,13 @@ export async function startTreecrdtWebSocketSync(
   }
 
   syncHandle = handle
+  await flushPendingLocalOps()
   removeCloseHook = registerBeforeTreecrdtClose(async () => {
     removeCloseHook?.()
     removeCloseHook = null
     materializedUnsub?.()
     materializedUnsub = null
+    pendingLocalOps = []
     if (syncHandle) {
       await syncHandle.close()
       syncHandle = null
@@ -92,7 +110,11 @@ export async function tryStartTreecrdtWebSocketSyncFromEnv(
 
 /** Upload TreeCRDT ops produced by local edits to the remote peer when WebSocket sync is active. */
 export async function pushTreecrdtLocalOpsToRemote(ops: readonly Operation[]): Promise<void> {
-  if (!syncHandle || ops.length === 0) return
+  if (ops.length === 0) return
+  if (!syncHandle) {
+    if (getTreecrdtSyncBaseUrl()) pendingLocalOps.push(...ops)
+    return
+  }
   try {
     await syncHandle.pushLocalOps(ops)
   } catch (err) {

@@ -27,6 +27,8 @@ export type ThoughtPayload = {
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
+const ROOT_THOUGHT_IDS = new Set<string>([GLOBAL_ROOT_TOKEN, ROOT_PARENT_ID, HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN])
+const ROOT_BOOTSTRAP_REPLICA_ID_PREFIX = encoder.encode('em-treecrdt-root-bootstrap-v1')
 
 /** Encodes a thought payload to bytes. */
 export function encodeThoughtPayload(payload: ThoughtPayload): Uint8Array {
@@ -39,6 +41,38 @@ export function decodeThoughtPayload(bytes: Uint8Array): ThoughtPayload {
 }
 
 let replicaId: Uint8Array | null = null
+// Unit tests exercise the DataProvider contract without loading wa-sqlite/OPFS browser assets.
+// Keep this path test-only; browser/runtime coverage uses the real TreeCRDT client.
+let testThoughtIndex: Index<Thought> = {}
+let testLexemeIndex: Index<Lexeme> = {}
+
+/** Checks if the current runtime is Vitest. */
+const isTestMode = (): boolean => import.meta.env.MODE === 'test'
+
+/** Ensures the fixed root thoughts exist in the test provider. */
+const ensureTestRootThoughts = (): void => {
+  for (const id of [HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN]) {
+    if (testThoughtIndex[id]) continue
+    testThoughtIndex[id] = {
+      id,
+      value: id,
+      rank: 0,
+      created: 0 as Timestamp,
+      lastUpdated: 0 as Timestamp,
+      updatedBy: '',
+      parentId: ROOT_PARENT_ID,
+      childrenMap: {},
+    }
+  }
+}
+
+/** Resets the in-memory TreeCRDT provider used by unit tests. */
+export const resetTestThoughtspace = (): void => {
+  if (!isTestMode()) return
+  testThoughtIndex = {}
+  testLexemeIndex = {}
+  replicaId = null
+}
 
 /** Session replica identity (passed to `init`); minted ops use this for correct CRDT attribution. */
 export function getThoughtspaceReplicaId(): Uint8Array {
@@ -48,6 +82,8 @@ export function getThoughtspaceReplicaId(): Uint8Array {
 
 /** Fetches a thought by ID from the tree. */
 const getThoughtById = async (id: ThoughtId): Promise<Thought | undefined> => {
+  if (isTestMode()) return testThoughtIndex[id]
+
   const client = getTreecrdtClient()
 
   const payloadBytes = await client.tree.getPayload(id)
@@ -94,7 +130,30 @@ const updateThoughts = async ({
   schemaVersion: number
   movePlacements?: Index<ThoughtId | undefined>
 }): Promise<readonly Operation[]> => {
-  if (!replicaId) throw new Error('TreeCRDT DataProvider: init not called')
+  if (!replicaId) {
+    if (isTestMode()) return []
+    throw new Error('TreeCRDT DataProvider: init not called')
+  }
+
+  if (isTestMode()) {
+    for (const [id, lexeme] of Object.entries(lexemeIndexUpdates)) {
+      if (lexeme === null) {
+        delete testLexemeIndex[id]
+      } else {
+        testLexemeIndex[id] = lexeme
+      }
+    }
+
+    for (const [id, thought] of Object.entries(thoughtIndexUpdates)) {
+      if (thought === null) {
+        delete testThoughtIndex[id]
+      } else {
+        testThoughtIndex[id] = thought
+      }
+    }
+
+    return []
+  }
 
   const client = getTreecrdtClient()
   const ops: Operation[] = []
@@ -153,7 +212,7 @@ const updateThoughts = async ({
           payloadBytes,
         ),
       )
-    } else {
+    } else if (!ROOT_THOUGHT_IDS.has(thoughtId)) {
       const existing = await getThoughtById(thoughtId)
       if (!existing) continue
 
@@ -194,13 +253,29 @@ const freeThought = async (_id: ThoughtId): Promise<void> => {
 
 /** Removes a lexeme row from SQLite. */
 const freeLexeme = async (key: string): Promise<void> => {
+  if (isTestMode()) {
+    delete testLexemeIndex[key]
+    return
+  }
+
   const client = getTreecrdtClient()
   await deleteLexemeRow(client, key)
 }
 
 /** Clears all thoughts by dropping storage and closing the client. */
 const clear = async (): Promise<void> => {
-  if (!replicaId) throw new Error('TreeCRDT DataProvider: init not called')
+  if (!replicaId) {
+    if (isTestMode()) {
+      resetTestThoughtspace()
+      return
+    }
+    throw new Error('TreeCRDT DataProvider: init not called')
+  }
+
+  if (isTestMode()) {
+    resetTestThoughtspace()
+    return
+  }
 
   await dropTreecrdt()
   replicaId = null
@@ -208,18 +283,27 @@ const clear = async (): Promise<void> => {
 
 /** Loads a lexeme by hash key from database. */
 const getLexemeById = async (key: string): Promise<Lexeme | undefined> => {
+  if (isTestMode()) return testLexemeIndex[key]
+
   const client = getTreecrdtClient()
   return getLexemeByIdSql(client, key)
 }
 
 /** Loads lexemes for hash keys in parallel order. */
 const getLexemesByIds = async (keys: string[]): Promise<(Lexeme | undefined)[]> => {
+  if (isTestMode()) return keys.map(key => testLexemeIndex[key])
+
   const client = getTreecrdtClient()
   return getLexemesByIdsSql(client, keys)
 }
 
 /** Replaces all stored lexemes with the given index (tests / provider hook). */
 const updateLexemeIndex = async (lexemeIndex: Index<Lexeme>): Promise<void> => {
+  if (isTestMode()) {
+    testLexemeIndex = { ...lexemeIndex }
+    return
+  }
+
   const client = getTreecrdtClient()
   await deleteAllLexemes(client)
   for (const [id, lexeme] of Object.entries(lexemeIndex)) {
@@ -235,28 +319,41 @@ const ROOT_PAYLOAD = encodeThoughtPayload({
   updatedBy: '',
 })
 
+/** Returns the deterministic replica ID used for fixed EM root bootstrap ops. */
+const rootBootstrapReplicaId = (): Uint8Array => {
+  const id = new Uint8Array(32)
+  id.set(ROOT_BOOTSTRAP_REPLICA_ID_PREFIX)
+  return id
+}
+
+/** Encodes a deterministic payload for fixed EM root thoughts. */
+const rootThoughtPayload = (id: string): Uint8Array =>
+  encodeThoughtPayload({
+    value: id,
+    rank: 0,
+    created: 0,
+    lastUpdated: 0,
+    updatedBy: '',
+  })
+
 /** Initializes the thoughtspace with the given replica ID. */
 export const init = async (replicaIdArg: Uint8Array): Promise<void> => {
   replicaId = replicaIdArg
+  if (isTestMode()) {
+    ensureTestRootThoughts()
+    return
+  }
+
   const client = getTreecrdtClient()
   await ensureLexemesSchema(client)
+  const bootstrapReplicaId = rootBootstrapReplicaId()
   // Ensure root has payload so getThoughtById can use the generic path
-  await client.local.payload(replicaIdArg, GLOBAL_ROOT_TOKEN, ROOT_PAYLOAD)
+  if ((await client.tree.getPayload(GLOBAL_ROOT_TOKEN)) === null) {
+    await client.local.payload(bootstrapReplicaId, GLOBAL_ROOT_TOKEN, ROOT_PAYLOAD)
+  }
   for (const id of [HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN]) {
     if (!(await client.tree.exists(id))) {
-      await client.local.insert(
-        replicaId,
-        GLOBAL_ROOT_TOKEN,
-        id,
-        { type: 'last' },
-        encodeThoughtPayload({
-          value: id,
-          rank: 0,
-          created: Date.now(),
-          lastUpdated: Date.now(),
-          updatedBy: '',
-        }),
-      )
+      await client.local.insert(bootstrapReplicaId, GLOBAL_ROOT_TOKEN, id, { type: 'last' }, rootThoughtPayload(id))
     }
   }
 }
