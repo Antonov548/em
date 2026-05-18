@@ -20,7 +20,7 @@ import isRoot from '../util/isRoot'
 import parentOf from '../util/parentOf'
 import reducerFlow from '../util/reducerFlow'
 import alert from './alert'
-import createThought from './createThought'
+import { createThoughtByRank as createThought } from './createThought'
 import { moveThoughtByRank } from './moveThought'
 import setCursor from './setCursor'
 

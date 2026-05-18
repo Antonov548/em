@@ -1,5 +1,6 @@
 import _ from 'lodash'
 import Block from '../@types/Block'
+import Index from '../@types/IndexType'
 import Lexeme from '../@types/Lexeme'
 import Path from '../@types/Path'
 import SimplePath from '../@types/SimplePath'
@@ -9,6 +10,7 @@ import ThoughtId from '../@types/ThoughtId'
 import ThoughtIndices from '../@types/ThoughtIndices'
 import Timestamp from '../@types/Timestamp'
 import { deleteThought } from '../actions'
+import { getCreateThoughtAfterIdByRank } from '../actions/createThought'
 import { EM_TOKEN, HOME_TOKEN } from '../constants'
 import { clientId } from '../data-providers/thoughtspaceSession'
 import { anyChild } from '../selectors/getChildren'
@@ -34,6 +36,10 @@ export interface ImportJSONOptions {
   updatedBy?: string
 }
 
+type ImportThoughtUpdates = ThoughtIndices & {
+  treePlacements: Index<ThoughtId | null>
+}
+
 /** Replace head block with its children, or drop it, if head has no children. */
 const skipRootThought = (blocks: Block[]) => {
   const head = _.head(blocks)
@@ -50,14 +56,16 @@ const insertThought = (
     block,
     id,
     lastUpdated,
-    rank,
+    afterId,
+    emRank,
     updatedBy = clientId,
     value,
   }: {
     block: Block
     id: ThoughtId
     value: string
-    rank: number
+    afterId: ThoughtId | null
+    emRank: number
     lastUpdated?: Timestamp
     updatedBy: string
   },
@@ -94,7 +102,7 @@ const insertThought = (
     id: newThoughtId,
     lastUpdated: lastUpdatedInherited,
     parentId: thoughtOld.id,
-    rank,
+    rank: emRank,
     updatedBy,
     value,
   }
@@ -108,6 +116,9 @@ const insertThought = (
       [id]: thoughtNew,
       [newThought.id]: newThought,
     },
+    treePlacements: {
+      [newThought.id]: afterId,
+    },
   }
 }
 
@@ -116,23 +127,24 @@ const saveThoughts = (
   state: State,
   path: Path,
   blocks: Block[],
-  rankIncrement = 1,
-  startRank = 0,
+  emRankIncrement = 1,
+  emRankStart = 0,
   lastUpdated = timestamp(),
   updatedBy = clientId,
-): ThoughtIndices => {
+): ImportThoughtUpdates => {
   const id = head(path)
 
   if (!id)
     return {
       lexemeIndex: {},
       thoughtIndex: {},
+      treePlacements: {},
     }
 
-  const updates = blocks.reduce<ThoughtIndices>(
+  const updates = blocks.reduce<ImportThoughtUpdates>(
     (accum, block, index) => {
       const skipLevel: boolean = block.scope === HOME_TOKEN || block.scope === EM_TOKEN
-      const rank = startRank + index * rankIncrement
+      const emRank = emRankStart + index * emRankIncrement
 
       const value = block.scope.trim()
 
@@ -146,7 +158,8 @@ const saveThoughts = (
             block,
             id,
             value,
-            rank,
+            afterId: getCreateThoughtAfterIdByRank(stateNewBeforeInsert, id, emRank),
+            emRank,
             lastUpdated,
             updatedBy,
           })
@@ -175,8 +188,13 @@ const saveThoughts = (
         ...(insertUpdates?.lexemeIndex || {}),
       }
 
+      const updatedAccumulatedTreePlacements = {
+        ...accum.treePlacements,
+        ...(insertUpdates?.treePlacements || {}),
+      }
+
       if (block.children.length > 0) {
-        const updates = saveThoughts(updatedState, childPath, block.children, rankIncrement, startRank, lastUpdated)
+        const updates = saveThoughts(updatedState, childPath, block.children, emRankIncrement, emRankStart, lastUpdated)
 
         return {
           lexemeIndex: {
@@ -187,24 +205,31 @@ const saveThoughts = (
             ...updatedAccumulatedThoughtIndex,
             ...updates.thoughtIndex,
           },
+          treePlacements: {
+            ...updatedAccumulatedTreePlacements,
+            ...updates.treePlacements,
+          },
         }
       } else {
         return {
           ...accum,
           lexemeIndex: updatedAccumulatedLexemeIndex,
           thoughtIndex: updatedAccumulatedThoughtIndex,
+          treePlacements: updatedAccumulatedTreePlacements,
         }
       }
     },
     {
       thoughtIndex: {},
       lexemeIndex: {},
+      treePlacements: {},
     },
   )
 
   return {
     thoughtIndex: updates.thoughtIndex,
     lexemeIndex: updates.lexemeIndex,
+    treePlacements: updates.treePlacements,
   }
 }
 
@@ -219,11 +244,11 @@ const getContextsNum = (blocks: Block[]): number => {
   )
 }
 
-/** Calculate rankIncrement value based on rank of next sibling or its absence. */
-const getRankIncrement = (state: State, blocks: Block[], destThought: Thought, rankStart: number) => {
+/** Calculate temporary em rank spacing based on the next sibling or its absence. */
+const getEmRankIncrement = (state: State, blocks: Block[], destThought: Thought, emRankStart: number) => {
   const next = nextSibling(state, destThought.id) // paste after last child of current thought
-  const rankIncrement = next ? (next.rank - rankStart) / (getContextsNum(blocks) || 1) : 1 // prevent divide by zero
-  return rankIncrement
+  const emRankIncrement = next ? (next.rank - emRankStart) / (getContextsNum(blocks) || 1) : 1 // prevent divide by zero
+  return emRankIncrement
 }
 
 /** Convert JSON blocks to thoughts update. */
@@ -236,8 +261,8 @@ const importJson = (
   const destThought = pathToThought(state, simplePath)
   const destEmpty = destThought?.value === '' && !anyChild(state, head(simplePath))
   // use getNextRank instead of getRankAfter because if dest is not empty then we need to import thoughts inside it
-  const rankStart = destEmpty ? destThought?.rank : getNextRank(state, head(simplePath))
-  const rankIncrement = destEmpty ? getRankIncrement(state, blocks, destThought, rankStart) : 1
+  const emRankStart = destEmpty ? destThought?.rank : getNextRank(state, head(simplePath))
+  const emRankIncrement = destEmpty ? getEmRankIncrement(state, blocks, destThought, emRankStart) : 1
   const pathParent = rootedParentOf(state, simplePath)
   const parentId = head(pathParent)
 
@@ -249,12 +274,12 @@ const importJson = (
   const importPath = destEmpty ? rootedParentOf(state, simplePath) : simplePath
   const blocksNormalized = skipRoot ? skipRootThought(blocks) : blocks
 
-  const { thoughtIndex, lexemeIndex } = saveThoughts(
+  const { thoughtIndex, lexemeIndex, treePlacements } = saveThoughts(
     stateUpdated,
     importPath,
     blocksNormalized,
-    rankIncrement,
-    rankStart,
+    emRankIncrement,
+    emRankStart,
     lastUpdated,
     updatedBy,
   )
@@ -289,6 +314,10 @@ const importJson = (
     lexemeIndexUpdates: {
       ...deletedEmptyUpdates?.lexemeIndexUpdates,
       ...lexemeIndex,
+    },
+    treePlacements: {
+      ...deletedEmptyUpdates?.treePlacements,
+      ...treePlacements,
     },
     lastImported,
   }
