@@ -1,5 +1,6 @@
 import _ from 'lodash'
 import Block from '../@types/Block'
+import Index from '../@types/IndexType'
 import Lexeme from '../@types/Lexeme'
 import Path from '../@types/Path'
 import SimplePath from '../@types/SimplePath'
@@ -9,6 +10,7 @@ import ThoughtId from '../@types/ThoughtId'
 import ThoughtIndices from '../@types/ThoughtIndices'
 import Timestamp from '../@types/Timestamp'
 import { deleteThought } from '../actions'
+import { getCreateThoughtAfterIdByRank } from '../actions/createThought'
 import { EM_TOKEN, HOME_TOKEN } from '../constants'
 import { clientId } from '../data-providers/thoughtspaceSession'
 import { anyChild } from '../selectors/getChildren'
@@ -34,6 +36,10 @@ export interface ImportJSONOptions {
   updatedBy?: string
 }
 
+type ImportThoughtUpdates = ThoughtIndices & {
+  treePlacements: Index<ThoughtId | null>
+}
+
 /** Replace head block with its children, or drop it, if head has no children. */
 const skipRootThought = (blocks: Block[]) => {
   const head = _.head(blocks)
@@ -50,6 +56,7 @@ const insertThought = (
     block,
     id,
     lastUpdated,
+    afterId,
     rank,
     updatedBy = clientId,
     value,
@@ -57,6 +64,7 @@ const insertThought = (
     block: Block
     id: ThoughtId
     value: string
+    afterId: ThoughtId | null
     rank: number
     lastUpdated?: Timestamp
     updatedBy: string
@@ -108,6 +116,9 @@ const insertThought = (
       [id]: thoughtNew,
       [newThought.id]: newThought,
     },
+    treePlacements: {
+      [newThought.id]: afterId,
+    },
   }
 }
 
@@ -120,16 +131,17 @@ const saveThoughts = (
   startRank = 0,
   lastUpdated = timestamp(),
   updatedBy = clientId,
-): ThoughtIndices => {
+): ImportThoughtUpdates => {
   const id = head(path)
 
   if (!id)
     return {
       lexemeIndex: {},
       thoughtIndex: {},
+      treePlacements: {},
     }
 
-  const updates = blocks.reduce<ThoughtIndices>(
+  const updates = blocks.reduce<ImportThoughtUpdates>(
     (accum, block, index) => {
       const skipLevel: boolean = block.scope === HOME_TOKEN || block.scope === EM_TOKEN
       const rank = startRank + index * rankIncrement
@@ -146,6 +158,7 @@ const saveThoughts = (
             block,
             id,
             value,
+            afterId: getCreateThoughtAfterIdByRank(stateNewBeforeInsert, id, rank),
             rank,
             lastUpdated,
             updatedBy,
@@ -175,6 +188,11 @@ const saveThoughts = (
         ...(insertUpdates?.lexemeIndex || {}),
       }
 
+      const updatedAccumulatedTreePlacements = {
+        ...accum.treePlacements,
+        ...(insertUpdates?.treePlacements || {}),
+      }
+
       if (block.children.length > 0) {
         const updates = saveThoughts(updatedState, childPath, block.children, rankIncrement, startRank, lastUpdated)
 
@@ -187,24 +205,31 @@ const saveThoughts = (
             ...updatedAccumulatedThoughtIndex,
             ...updates.thoughtIndex,
           },
+          treePlacements: {
+            ...updatedAccumulatedTreePlacements,
+            ...updates.treePlacements,
+          },
         }
       } else {
         return {
           ...accum,
           lexemeIndex: updatedAccumulatedLexemeIndex,
           thoughtIndex: updatedAccumulatedThoughtIndex,
+          treePlacements: updatedAccumulatedTreePlacements,
         }
       }
     },
     {
       thoughtIndex: {},
       lexemeIndex: {},
+      treePlacements: {},
     },
   )
 
   return {
     thoughtIndex: updates.thoughtIndex,
     lexemeIndex: updates.lexemeIndex,
+    treePlacements: updates.treePlacements,
   }
 }
 
@@ -249,7 +274,7 @@ const importJson = (
   const importPath = destEmpty ? rootedParentOf(state, simplePath) : simplePath
   const blocksNormalized = skipRoot ? skipRootThought(blocks) : blocks
 
-  const { thoughtIndex, lexemeIndex } = saveThoughts(
+  const { thoughtIndex, lexemeIndex, treePlacements } = saveThoughts(
     stateUpdated,
     importPath,
     blocksNormalized,
@@ -289,6 +314,10 @@ const importJson = (
     lexemeIndexUpdates: {
       ...deletedEmptyUpdates?.lexemeIndexUpdates,
       ...lexemeIndex,
+    },
+    treePlacements: {
+      ...deletedEmptyUpdates?.treePlacements,
+      ...treePlacements,
     },
     lastImported,
   }

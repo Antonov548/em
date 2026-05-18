@@ -3,10 +3,10 @@ import Path from '../@types/Path'
 import SimplePath from '../@types/SimplePath'
 import State from '../@types/State'
 import Thunk from '../@types/Thunk'
-import createThought from '../actions/createThought'
+import { createThoughtByRank as createThought } from '../actions/createThought'
 import editThought from '../actions/editThought'
 import editableRender from '../actions/editableRender'
-import moveThought from '../actions/moveThought'
+import { moveThoughtByRank } from '../actions/moveThought'
 import setCursor from '../actions/setCursor'
 import findDescendant from '../selectors/findDescendant'
 import { getAllChildren } from '../selectors/getChildren'
@@ -57,7 +57,7 @@ const bumpThoughtDown = (state: State, { simplePath }: { simplePath?: SimplePath
 
   return reducerFlow([
     // modify the rank to get the thought to re-render (via the Subthoughts child key)
-    moveThought({
+    moveThoughtByRank({
       oldPath: simplePath,
       newPath: simplePathWithNewRank,
       newRank: getRankBefore(state, simplePath),

@@ -28,6 +28,10 @@ describe('normal view', () => {
     expect(exported).toBe(`- ${HOME_TOKEN}
   - a
   - b`)
+
+    const thoughtAId = contextToThoughtId(stateNew, ['a'])!
+    const thoughtBId = contextToThoughtId(stateNew, ['b'])!
+    expect(stateNew.pushQueue.at(-1)?.treePlacements?.[thoughtBId]).toBe(thoughtAId)
   })
 
   it('new thought before', () => {
@@ -39,6 +43,10 @@ describe('normal view', () => {
     expect(exported).toBe(`- ${HOME_TOKEN}
   - b
   - a`)
+
+    const thoughtBId = contextToThoughtId(stateNew, ['b'])!
+    expect(stateNew.pushQueue.at(-1)?.treePlacements).toHaveProperty(thoughtBId)
+    expect(stateNew.pushQueue.at(-1)?.treePlacements?.[thoughtBId]).toBeNull()
   })
 
   it('new subthought', () => {

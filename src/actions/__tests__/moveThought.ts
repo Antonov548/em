@@ -111,7 +111,7 @@ it('rank adapter placement excludes the moved thought', () => {
     newRank: (thoughtB.rank + thoughtC.rank) / 2,
   })(state)
 
-  expect(stateNew.pushQueue.at(-1)?.movePlacements?.[thoughtB.id]).toBe(thoughtA.id)
+  expect(stateNew.pushQueue.at(-1)?.treePlacements?.[thoughtB.id]).toBe(thoughtA.id)
 })
 
 it('explicit first placement is not inferred from rank', () => {
@@ -127,8 +127,8 @@ it('explicit first placement is not inferred from rank', () => {
     afterId: null,
   })(state)
 
-  expect(stateNew.pushQueue.at(-1)?.movePlacements).toHaveProperty(thoughtC.id)
-  expect(stateNew.pushQueue.at(-1)?.movePlacements?.[thoughtC.id]).toBeNull()
+  expect(stateNew.pushQueue.at(-1)?.treePlacements).toHaveProperty(thoughtC.id)
+  expect(stateNew.pushQueue.at(-1)?.treePlacements?.[thoughtC.id]).toBeNull()
 })
 
 it('rejects placement after the moved thought', () => {

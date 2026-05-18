@@ -17,7 +17,7 @@ import reducerFlow from '../util/reducerFlow'
 import deleteThought from './deleteThought'
 import editThought from './editThought'
 import editableRender from './editableRender'
-import moveThought from './moveThought'
+import { moveThoughtByRank as moveThought } from './moveThought'
 
 /** Trailing hyphen that should be removed when joining block formatted text from print or pdf. */
 const REGEX_HYPHEN = /-$/

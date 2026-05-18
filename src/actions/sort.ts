@@ -31,14 +31,14 @@ const sort = (state: State, id: ThoughtId, sortPreference?: SortPreference): Sta
 
   if (Object.keys(thoughtIndexUpdates).length === 0) return state
 
-  const movePlacements: Index<ThoughtId | null> = keyValueBy(children, (child, i) =>
+  const treePlacements: Index<ThoughtId | null> = keyValueBy(children, (child, i) =>
     child.id in thoughtIndexUpdates ? { [child.id]: i === 0 ? null : children[i - 1].id } : null,
   )
 
   return updateThoughts(state, {
     thoughtIndexUpdates,
     lexemeIndexUpdates: {},
-    movePlacements,
+    treePlacements,
     preventExpandThoughts: true,
   })
 }
