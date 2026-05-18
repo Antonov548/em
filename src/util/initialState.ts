@@ -96,6 +96,7 @@ const initialThoughts = (created: Timestamp = timestamp()): ThoughtIndices => {
   }
 
   return {
+    childOrder: {},
     thoughtIndex,
     lexemeIndex,
   }

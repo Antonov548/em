@@ -51,6 +51,9 @@ it('projects TreeCRDT sibling order into compatibility ranks', async () => {
   const state = {
     ...initialState(),
     thoughts: {
+      childOrder: {
+        [HOME_TOKEN]: [A_ID, B_ID, C_ID],
+      },
       thoughtIndex: {
         [HOME_TOKEN]: oldParent,
         [A_ID]: thoughtA,
@@ -74,6 +77,7 @@ it('projects TreeCRDT sibling order into compatibility ranks', async () => {
 
   const updates = Object.fromEntries(result.thoughts.map(nextThought => [nextThought.id, nextThought]))
 
+  expect(result.childOrderUpdates[HOME_TOKEN]).toEqual([C_ID, A_ID, B_ID])
   expect(Object.values(updates[HOME_TOKEN].childrenMap)).toEqual([C_ID, A_ID, B_ID])
   expect(updates[C_ID].rank).toBe(0)
   expect(updates[A_ID].rank).toBe(1)
@@ -92,6 +96,7 @@ it('projects TreeCRDT sibling order for both parents after a cross-parent move',
   const state = {
     ...initialState(),
     thoughts: {
+      childOrder: {},
       thoughtIndex: {
         [LEFT_ID]: oldLeft,
         [RIGHT_ID]: oldRight,
