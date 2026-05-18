@@ -57,7 +57,7 @@ const insertThought = (
     id,
     lastUpdated,
     afterId,
-    rank,
+    emRank,
     updatedBy = clientId,
     value,
   }: {
@@ -65,7 +65,7 @@ const insertThought = (
     id: ThoughtId
     value: string
     afterId: ThoughtId | null
-    rank: number
+    emRank: number
     lastUpdated?: Timestamp
     updatedBy: string
   },
@@ -102,7 +102,7 @@ const insertThought = (
     id: newThoughtId,
     lastUpdated: lastUpdatedInherited,
     parentId: thoughtOld.id,
-    rank,
+    rank: emRank,
     updatedBy,
     value,
   }
@@ -127,8 +127,8 @@ const saveThoughts = (
   state: State,
   path: Path,
   blocks: Block[],
-  rankIncrement = 1,
-  startRank = 0,
+  emRankIncrement = 1,
+  emRankStart = 0,
   lastUpdated = timestamp(),
   updatedBy = clientId,
 ): ImportThoughtUpdates => {
@@ -144,7 +144,7 @@ const saveThoughts = (
   const updates = blocks.reduce<ImportThoughtUpdates>(
     (accum, block, index) => {
       const skipLevel: boolean = block.scope === HOME_TOKEN || block.scope === EM_TOKEN
-      const rank = startRank + index * rankIncrement
+      const emRank = emRankStart + index * emRankIncrement
 
       const value = block.scope.trim()
 
@@ -158,8 +158,8 @@ const saveThoughts = (
             block,
             id,
             value,
-            afterId: getCreateThoughtAfterIdByRank(stateNewBeforeInsert, id, rank),
-            rank,
+            afterId: getCreateThoughtAfterIdByRank(stateNewBeforeInsert, id, emRank),
+            emRank,
             lastUpdated,
             updatedBy,
           })
@@ -194,7 +194,7 @@ const saveThoughts = (
       }
 
       if (block.children.length > 0) {
-        const updates = saveThoughts(updatedState, childPath, block.children, rankIncrement, startRank, lastUpdated)
+        const updates = saveThoughts(updatedState, childPath, block.children, emRankIncrement, emRankStart, lastUpdated)
 
         return {
           lexemeIndex: {
@@ -244,11 +244,11 @@ const getContextsNum = (blocks: Block[]): number => {
   )
 }
 
-/** Calculate rankIncrement value based on rank of next sibling or its absence. */
-const getRankIncrement = (state: State, blocks: Block[], destThought: Thought, rankStart: number) => {
+/** Calculate temporary em rank spacing based on the next sibling or its absence. */
+const getEmRankIncrement = (state: State, blocks: Block[], destThought: Thought, emRankStart: number) => {
   const next = nextSibling(state, destThought.id) // paste after last child of current thought
-  const rankIncrement = next ? (next.rank - rankStart) / (getContextsNum(blocks) || 1) : 1 // prevent divide by zero
-  return rankIncrement
+  const emRankIncrement = next ? (next.rank - emRankStart) / (getContextsNum(blocks) || 1) : 1 // prevent divide by zero
+  return emRankIncrement
 }
 
 /** Convert JSON blocks to thoughts update. */
@@ -261,8 +261,8 @@ const importJson = (
   const destThought = pathToThought(state, simplePath)
   const destEmpty = destThought?.value === '' && !anyChild(state, head(simplePath))
   // use getNextRank instead of getRankAfter because if dest is not empty then we need to import thoughts inside it
-  const rankStart = destEmpty ? destThought?.rank : getNextRank(state, head(simplePath))
-  const rankIncrement = destEmpty ? getRankIncrement(state, blocks, destThought, rankStart) : 1
+  const emRankStart = destEmpty ? destThought?.rank : getNextRank(state, head(simplePath))
+  const emRankIncrement = destEmpty ? getEmRankIncrement(state, blocks, destThought, emRankStart) : 1
   const pathParent = rootedParentOf(state, simplePath)
   const parentId = head(pathParent)
 
@@ -278,8 +278,8 @@ const importJson = (
     stateUpdated,
     importPath,
     blocksNormalized,
-    rankIncrement,
-    rankStart,
+    emRankIncrement,
+    emRankStart,
     lastUpdated,
     updatedBy,
   )
