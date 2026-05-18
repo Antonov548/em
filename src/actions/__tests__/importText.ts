@@ -119,6 +119,25 @@ it('basic import with proper thought structure', () => {
   expect(lexemeIndex[hashThought('b')].lastUpdated >= now).toBeTruthy()
 })
 
+it('adds explicit TreeCRDT placements for imported siblings', () => {
+  const text = `
+    - a
+    - b
+    - c
+  `
+
+  const stateNew = importText(initialState(), { text })
+  const thoughtAId = contextToThoughtId(stateNew, ['a'])!
+  const thoughtBId = contextToThoughtId(stateNew, ['b'])!
+  const thoughtCId = contextToThoughtId(stateNew, ['c'])!
+  const treePlacements = stateNew.pushQueue.at(-1)?.treePlacements
+
+  expect(treePlacements).toHaveProperty(thoughtAId)
+  expect(treePlacements?.[thoughtAId]).toBeNull()
+  expect(treePlacements?.[thoughtBId]).toBe(thoughtAId)
+  expect(treePlacements?.[thoughtCId]).toBe(thoughtBId)
+})
+
 // TODO: importText no longer handlers multiline imports
 it('duplicate thoughts', () => {
   const text = `

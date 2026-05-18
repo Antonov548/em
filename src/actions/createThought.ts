@@ -8,6 +8,7 @@ import ThoughtId from '../@types/ThoughtId'
 import Thunk from '../@types/Thunk'
 import updateThoughts from '../actions/updateThoughts'
 import { clientId } from '../data-providers/thoughtspaceSession'
+import { getChildrenRanked } from '../selectors/getChildren'
 import getLexeme from '../selectors/getLexeme'
 import getThoughtById from '../selectors/getThoughtById'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
@@ -18,7 +19,12 @@ import head from '../util/head'
 import keyValueBy from '../util/keyValueBy'
 import timestamp from '../util/timestamp'
 
-interface Payload {
+export interface CreateThoughtPayload {
+  /**
+   * ID of sibling after which to place in TreeCRDT.
+   * Explicit null means first child.
+   */
+  afterId: ThoughtId | null
   // directly adds children to thought.childrenMap with no additional validation
   children?: ThoughtId[]
   id?: ThoughtId
@@ -29,10 +35,25 @@ interface Payload {
   splitSource?: ThoughtId
   value: string
 }
+
+export type CreateThoughtByRankPayload = Omit<CreateThoughtPayload, 'afterId'>
+
+/** Derives an explicit TreeCRDT afterId from em's temporary rank ordering. */
+export const getCreateThoughtAfterIdByRank = (state: State, parentId: ThoughtId, rank: number): ThoughtId | null => {
+  const after = getChildrenRanked(state, parentId)
+    .filter(child => child.rank < rank)
+    .at(-1)
+
+  return after?.id ?? null
+}
+
 /**
  * Creates a new thought with a known context and rank. Does not update the cursor. Use the newThought reducer for a higher level function.
  */
-const createThought = (state: State, { path, value, rank, id, idbSynced, children, splitSource }: Payload) => {
+const createThought = (
+  state: State,
+  { afterId, path, value, rank, id, idbSynced, children, splitSource }: CreateThoughtPayload,
+) => {
   id = id || createId()
   const lexemeOld = getLexeme(state, value)
 
@@ -50,8 +71,13 @@ const createThought = (state: State, { path, value, rank, id, idbSynced, childre
   const parent = getThoughtById(state, parentId)
 
   if (!parent) {
-    console.error({ path, value, rank, id, idbSynced, children, splitSource })
+    console.error({ afterId, path, value, rank, id, idbSynced, children, splitSource })
     throw new Error(`createThought: Parent thought with id ${parentId} not found`)
+  }
+
+  const childrenOfParent = getChildrenRanked(state, parentId)
+  if (afterId === id || (afterId !== null && !childrenOfParent.some(child => child.id === afterId))) {
+    throw new Error(`createThought: afterId must be null or a child of the destination context.`)
   }
 
   const thoughtIndexUpdates: Index<Thought> = {}
@@ -102,14 +128,41 @@ const createThought = (state: State, { path, value, rank, id, idbSynced, childre
     [hashThought(value)]: lexemeNew,
   }
 
-  return updateThoughts(state, { lexemeIndexUpdates, thoughtIndexUpdates, idbSynced })
+  return updateThoughts(state, {
+    lexemeIndexUpdates,
+    thoughtIndexUpdates,
+    idbSynced,
+    treePlacements: { [id]: afterId },
+  })
 }
+
+/** Explicitly adapts a rank-based insert to TreeCRDT relative placement while rank remains in em's action model. */
+const createThoughtByRankImpl = (state: State, payload: CreateThoughtByRankPayload): State =>
+  createThought(state, {
+    ...payload,
+    afterId: getCreateThoughtAfterIdByRank(state, head(payload.path), payload.rank),
+  })
+
+export const createThoughtByRank = _.curryRight(createThoughtByRankImpl, 2)
 
 /** Action-creator for createThought. */
 export const createThoughtActionCreator =
   (payload: Parameters<typeof createThought>[1]): Thunk =>
   dispatch =>
     dispatch({ type: 'createThought', ...payload })
+
+/** Action-creator for rank-based inserts that still need an explicit TreeCRDT placement bridge. */
+export const createThoughtByRankActionCreator =
+  (payload: CreateThoughtByRankPayload): Thunk =>
+  (dispatch, getState) => {
+    const state = getState()
+    dispatch(
+      createThoughtActionCreator({
+        ...payload,
+        afterId: getCreateThoughtAfterIdByRank(state, head(payload.path), payload.rank),
+      }),
+    )
+  }
 
 export default _.curryRight(createThought)
 

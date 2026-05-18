@@ -98,7 +98,7 @@ const pushQueue: StoreEnhancer<any> =
               lexemeIndexUpdates: batch.lexemeIndexUpdates,
               lexemeIndexUpdatesOld: batch.lexemeIndexUpdatesOld,
               schemaVersion: batch.updates?.schemaVersion ?? 0,
-              movePlacements: batch.movePlacements,
+              treePlacements: batch.treePlacements,
             }
             const maybeOps = await db.updateThoughts(batchPayload)
             if (batch.local && Array.isArray(maybeOps) && maybeOps.length > 0) {

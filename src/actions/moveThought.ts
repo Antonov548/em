@@ -204,7 +204,7 @@ const moveThought = (state: State, payload: MoveThoughtPayload) => {
         lexemeIndexUpdates: {},
         recentlyEdited,
         preventExpandThoughts: true,
-        movePlacements: { [sourceThought.id]: afterId },
+        treePlacements: { [sourceThought.id]: afterId },
       })
     },
     // update cursor if moved path is on the cursor
