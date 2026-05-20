@@ -19,8 +19,8 @@ import { decodeThoughtPayload, encodeThoughtPayload } from './payload'
 import { SYSTEM_ROOT_THOUGHT_IDS } from './systemThoughtIds'
 import { dropTreecrdt, getTreecrdtClient } from './treecrdt'
 import { createTreecrdtLocalWriteOptions } from './writeBarrier'
-
-type TreecrdtPlacement = { type: 'first' } | { type: 'last' } | { type: 'after'; after: ThoughtId }
+import type { TreecrdtPlacement } from './writeDiff'
+import { hasTreecrdtPayloadChange, hasTreecrdtPlacementChange } from './writeDiff'
 
 let replicaId: Uint8Array | null = null
 let initialized = false
@@ -195,22 +195,19 @@ const updateThoughts = async ({
       if (!existing) continue
 
       const parentChanged = existing.parentId !== thought.parentId
-      const orderChanged = thoughtId in (treePlacements || {})
-      if (parentChanged || orderChanged) {
-        const placement = await getTreecrdtPlacement(thoughtId, thought, treePlacements)
+      const hasPlacement = thoughtId in (treePlacements || {})
+      const placement =
+        parentChanged || hasPlacement ? await getTreecrdtPlacement(thoughtId, thought, treePlacements) : null
+      const orderChanged =
+        !!placement && hasTreecrdtPlacementChange(await client.tree.children(parentId), thoughtId, placement)
+
+      if (placement && (parentChanged || orderChanged)) {
         ops.push(
           await client.local.move(activeReplicaId, thoughtId, parentId, placement, createTreecrdtLocalWriteOptions()),
         )
       }
 
-      const payloadChanged =
-        existing.value !== thought.value ||
-        existing.created !== thought.created ||
-        existing.lastUpdated !== thought.lastUpdated ||
-        existing.updatedBy !== thought.updatedBy ||
-        existing.archived !== thought.archived
-
-      if (payloadChanged) {
+      if (hasTreecrdtPayloadChange(existing, thought)) {
         ops.push(
           await client.local.payload(activeReplicaId, thoughtId, payloadBytes, createTreecrdtLocalWriteOptions()),
         )
