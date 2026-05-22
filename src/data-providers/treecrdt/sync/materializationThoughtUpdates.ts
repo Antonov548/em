@@ -86,7 +86,7 @@ const removeLexemeContext = async (
         }
 }
 
-/** Applies TreeCRDT sibling order to em's child order read projection and temporary rank projection. */
+/** Applies TreeCRDT sibling order to em's child order read projection. */
 const addTreeOrderProjection = async (
   updates: Index<Thought>,
   childOrderUpdates: Index<ThoughtId[]>,
@@ -100,14 +100,6 @@ const addTreeOrderProjection = async (
 
   const orderedChildIds = Object.values(parent.childrenMap || {})
   childOrderUpdates[parent.id] = orderedChildIds
-  for (const [rank, childId] of orderedChildIds.entries()) {
-    const child = await db.getThoughtById(childId)
-    if (!child) continue
-    updates[child.id] = {
-      ...child,
-      rank,
-    }
-  }
 }
 
 /** Collects affected ids from materialization changes, loads fresh thoughts + lexemes from the provider. */
@@ -175,8 +167,7 @@ export async function refreshThoughtsFromMaterializationChanges(
     await addLexemeContext(lexemeIndexUpdates, state, db, thought)
   }
 
-  // Preserve a rank projection while rank-based action code still exists, but expose TreeCRDT child order directly
-  // through childOrderUpdates for manual-order selectors.
+  // Manual-order selectors consume childOrder directly, so materialization does not rewrite every sibling rank.
   for (const parentId of orderParents) {
     await addTreeOrderProjection(thoughtIndexUpdates, childOrderUpdates, db, parentId)
   }
