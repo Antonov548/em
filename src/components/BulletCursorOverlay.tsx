@@ -7,7 +7,7 @@ import ThoughtId from '../@types/ThoughtId'
 import useHideBullet from '../hooks/useHideBullet'
 import useScrollCursorIntoView from '../hooks/useScrollCursorIntoView'
 import attributeEquals from '../selectors/attributeEquals'
-import { findAnyChild, getChildrenRanked } from '../selectors/getChildren'
+import { findAnyChild, getAllChildrenSorted } from '../selectors/getChildren'
 import getThoughtById from '../selectors/getThoughtById'
 import hasMulticursor from '../selectors/hasMulticursor'
 import isContextViewActive from '../selectors/isContextViewActive'
@@ -36,7 +36,7 @@ type BulletCursorOverlayProps = {
   leaf?: boolean
 }
 
-/** Returns true if two lists of children are equal. Deeply compares id, value, and rank. */
+/** Returns true if two lists of children are equal. Deeply compares id and renderable value. */
 const equalChildren = (a: Thought[], b: Thought[]) =>
   a === b ||
   (a && b && a.length === b.length && a.every((thought, i) => equalThoughtRanked(a[i], b[i]) && a[i].id === b[i].id))
@@ -129,8 +129,8 @@ export default function BulletCursorOverlay({
   })
 
   const children = useSelector<Thought[]>(
-    state => getChildrenRanked(state, head(simplePath)),
-    // only compare id, value, and rank for re-renders
+    state => getAllChildrenSorted(state, head(simplePath)),
+    // only compare id and renderable value for re-renders
     equalChildren,
   )
 

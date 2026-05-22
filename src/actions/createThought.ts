@@ -8,7 +8,7 @@ import ThoughtId from '../@types/ThoughtId'
 import Thunk from '../@types/Thunk'
 import updateThoughts from '../actions/updateThoughts'
 import { clientId } from '../data-providers/thoughtspaceSession'
-import { getChildrenRanked } from '../selectors/getChildren'
+import { getAllChildrenAsThoughts, getChildrenRanked, getChildrenSorted } from '../selectors/getChildren'
 import getLexeme from '../selectors/getLexeme'
 import getThoughtById from '../selectors/getThoughtById'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
@@ -31,12 +31,12 @@ export interface CreateThoughtPayload {
   /** Callback for when the updates have been synced with IDB. */
   idbSynced?: () => void
   path: Path
-  rank: number
+  rank?: number
   splitSource?: ThoughtId
   value: string
 }
 
-export type CreateThoughtByRankPayload = Omit<CreateThoughtPayload, 'afterId'>
+export type CreateThoughtByRankPayload = Omit<CreateThoughtPayload, 'afterId' | 'rank'> & { rank: number }
 
 /** Derives an explicit TreeCRDT afterId from em's temporary rank ordering. */
 export const getCreateThoughtAfterIdByRank = (state: State, parentId: ThoughtId, rank: number): ThoughtId | null => {
@@ -47,8 +47,28 @@ export const getCreateThoughtAfterIdByRank = (state: State, parentId: ThoughtId,
   return after?.id ?? null
 }
 
+/** Derives a temporary compatibility rank from explicit sibling placement. */
+export const getCreateThoughtRankByPlacement = (
+  state: State,
+  parentId: ThoughtId,
+  afterId: ThoughtId | null,
+): number => {
+  const children = getChildrenSorted(state, parentId)
+  if (children.length === 0) return 0
+
+  if (afterId === null) return children[0].rank - 1
+
+  const afterIndex = children.findIndex(child => child.id === afterId)
+  if (afterIndex === -1) return children[children.length - 1].rank + 1
+
+  const after = children[afterIndex]
+  const next = children[afterIndex + 1]
+  return next ? (after.rank + next.rank) / 2 : after.rank + 1
+}
+
 /**
- * Creates a new thought with a known context and rank. Does not update the cursor. Use the newThought reducer for a higher level function.
+ * Creates a new thought with a known context and relative sibling placement. Does not update the cursor.
+ * Use the newThought reducer for a higher level function.
  */
 const createThought = (
   state: State,
@@ -75,7 +95,7 @@ const createThought = (
     throw new Error(`createThought: Parent thought with id ${parentId} not found`)
   }
 
-  const childrenOfParent = getChildrenRanked(state, parentId)
+  const childrenOfParent = getAllChildrenAsThoughts(state, parentId)
   if (afterId === id || (afterId !== null && !childrenOfParent.some(child => child.id === afterId))) {
     throw new Error(`createThought: afterId must be null or a child of the destination context.`)
   }
@@ -83,6 +103,7 @@ const createThought = (
   const thoughtIndexUpdates: Index<Thought> = {}
 
   const newValue = value
+  const compatibilityRank = rank ?? getCreateThoughtRankByPlacement(state, parentId, afterId)
 
   // TODO: Why is a duplicate id encountered sometimes?
   // const duplicateId = getAllChildren(state, parentId).find(childId => childId === id)
@@ -97,7 +118,7 @@ const createThought = (
     id,
     lastUpdated: timestamp(),
     parentId: parentId,
-    rank,
+    rank: compatibilityRank,
     updatedBy: clientId,
     value: newValue,
     ...(splitSource ? { splitSource } : null),

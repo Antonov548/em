@@ -48,7 +48,9 @@ const moveThoughtAtFirstMatch = _.curryRight((state: State, payload: Payload) =>
   const afterId =
     Object.prototype.hasOwnProperty.call(payload, 'afterId') && payload.afterId !== undefined
       ? payload.afterId
-      : getMoveThoughtAfterIdByRank(state, head(rootedParentOf(state, newPath)), head(oldPath), payload.newRank)
+      : payload.newRank == null
+        ? null
+        : getMoveThoughtAfterIdByRank(state, head(rootedParentOf(state, newPath)), head(oldPath), payload.newRank)
 
   return moveThought(state, {
     ...payload,
@@ -69,7 +71,9 @@ export const moveThoughtAtFirstMatchActionCreator =
     const afterId =
       Object.prototype.hasOwnProperty.call(payload, 'afterId') && payload.afterId !== undefined
         ? payload.afterId
-        : getMoveThoughtAfterIdByRank(state, head(rootedParentOf(state, newPath)), head(oldPath), payload.newRank)
+        : payload.newRank == null
+          ? null
+          : getMoveThoughtAfterIdByRank(state, head(rootedParentOf(state, newPath)), head(oldPath), payload.newRank)
 
     dispatch(
       moveThoughtActionCreator({

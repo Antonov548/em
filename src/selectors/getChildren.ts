@@ -9,7 +9,6 @@ import ThoughtId from '../@types/ThoughtId'
 import getSortPreference from '../selectors/getSortPreference'
 import appendToPath from '../util/appendToPath'
 import { getManualChildOrder } from '../util/childOrder'
-import compareByRank from '../util/compareByRank'
 import {
   compareThought,
   compareThoughtByCreated,
@@ -65,9 +64,33 @@ const getVisibleThoughtsById = _.curry(
 /** Gets all visible children of an id, unordered. */
 export const getChildren = getVisibleThoughtsById(getAllChildrenAsThoughts)
 
+/** Gets children in the app's manual sibling order. Falls back to childrenMap order when no explicit order exists yet. */
+export const getChildrenManual = (state: State, thoughtId: ThoughtId | null): Thought[] => {
+  if (!thoughtId) return NO_CHILDREN
+  const children = childIdsToThoughts(state, getManualChildOrder(state, thoughtId))
+  return children.length === 0 ? NO_CHILDREN : children
+}
+
+/** Backwards-compatible alias for callers that have not been renamed yet. */
+export const getChildrenRanked = getChildrenManual
+
 /** Gets a list of all children of a context sorted by the given comparator function. */
 const getChildrenSortedBy = (state: State, id: ThoughtId, compare: ComparatorFunction<Thought>): Thought[] =>
-  sort(getAllChildrenAsThoughts(state, id), compare)
+  sort(getChildrenManual(state, id), compare)
+
+/** Sorts non-empty thoughts while leaving empty thoughts at their manual insertion indexes. */
+const sortWithEmptyThoughtsInPlace = (children: Thought[], compare: ComparatorFunction<Thought>): Thought[] => {
+  const sortedNonEmpty = sort(
+    children.filter(child => child.value !== ''),
+    compare,
+  )
+
+  return children.reduce<Thought[]>((acc, child, i) => {
+    if (child.value !== '') return acc
+    acc.splice(Math.min(i, acc.length), 0, child)
+    return acc
+  }, sortedNonEmpty)
+}
 
 /** Creates children sorted by direction-aware comparator. When descComparator is omitted, the ascending comparator is reversed for descending order. */
 const getChildrenSortedByDirection = (
@@ -82,8 +105,11 @@ const getChildrenSortedByDirection = (
 }
 
 /** Generates children sorted by their values. Sorts empty thoughts to their point of creation. */
-const getChildrenSortedAlphabetical = (state: State, id: ThoughtId): Thought[] =>
-  getChildrenSortedByDirection(state, id, compareThought, compareThoughtDescending)
+const getChildrenSortedAlphabetical = (state: State, id: ThoughtId): Thought[] => {
+  const sortPreference = getSortPreference(state, id)
+  const comparator = sortPreference.direction === 'Desc' ? compareThoughtDescending : compareThought
+  return sortWithEmptyThoughtsInPlace(getChildrenManual(state, id), comparator)
+}
 
 /** Generates children sorted by their creation date. */
 const getChildrenSortedCreated = (state: State, id: ThoughtId): Thought[] =>
@@ -117,19 +143,6 @@ export const findAnyChild = (
 /** Returns true if the context has any visible children. */
 export const hasChildren = (state: State, id: ThoughtId): boolean =>
   !!findAnyChild(state, id, child => state.showHiddenThoughts || isVisible(state, child))
-
-/** Gets all children of a thought sorted by rank. Returns a new object reference even if the children have not changed. */
-export const getChildrenRanked = (state: State, thoughtId: ThoughtId | null): Thought[] => {
-  const allChildren = childIdsToThoughts(state, getAllChildren(state, thoughtId))
-  return sort(allChildren, compareByRank)
-}
-
-/** Gets children in the app's manual sibling order. Falls back to rank when no explicit order exists yet. */
-export const getChildrenManual = (state: State, thoughtId: ThoughtId | null): Thought[] => {
-  if (!thoughtId) return NO_CHILDREN
-  const children = childIdsToThoughts(state, getManualChildOrder(state, thoughtId))
-  return children.length === 0 ? NO_CHILDREN : children
-}
 
 /** Returns any child of a thought. Only use on a thought with a single child. Also see: firstVisibleChild. */
 export const anyChild = (state: State, id: ThoughtId | undefined | null): Thought | undefined => {

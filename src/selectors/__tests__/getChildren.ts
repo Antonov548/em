@@ -38,7 +38,7 @@ describe('manual child order', () => {
       },
     }
 
-    expect(getChildrenRanked(stateWithTreeOrder, HOME_TOKEN).map(child => child.value)).toEqual(['a', 'b', 'c'])
+    expect(getChildrenRanked(stateWithTreeOrder, HOME_TOKEN).map(child => child.value)).toEqual(['c', 'a', 'b'])
     expect(getChildrenSorted(stateWithTreeOrder, HOME_TOKEN).map(child => child.value)).toEqual(['c', 'a', 'b'])
   })
 })

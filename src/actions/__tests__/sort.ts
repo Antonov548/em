@@ -56,10 +56,9 @@ describe('sort', () => {
     expect(stateAfterSort).toBe(stateWithGappedRanks)
   })
 
-  it('only updates thoughts whose ranks change when sorting is needed', () => {
+  it('does not rewrite ranks when sorted output can be derived from the sort preference', () => {
     // Import 'a', 'c', 'b' in that order with the sort preference already set.
-    // Calling sort as a separate action then demonstrates that only the thoughts
-    // whose ranks need to change are updated.
+    // Calling sort as a separate action should not mutate the stored manual order.
     const text = `
       - =sort
         - Alphabetical
@@ -73,8 +72,9 @@ describe('sort', () => {
     const b1 = contextToThought(state, ['b'])!
     const c1 = contextToThought(state, ['c'])!
 
-    // Apply sort in a separate step
     const stateAfterSort = sort(state, HOME_TOKEN)
+
+    expect(stateAfterSort).toBe(state)
 
     const exported = exportContext(stateAfterSort, HOME_TOKEN, 'text/plain')
 
@@ -89,13 +89,9 @@ describe('sort', () => {
     const b2 = contextToThought(stateAfterSort, ['b'])!
     const c2 = contextToThought(stateAfterSort, ['c'])!
 
-    // a was already in the correct sorted position — its rank did not change
     expect(a2.rank).toBe(a1.rank)
-    // verify the thought object itself was not recreated (it was not in thoughtIndexUpdates)
     expect(a2).toBe(a1)
-
-    // b and c were out of sorted order — their ranks changed
-    expect(b2.rank).not.toBe(b1.rank)
-    expect(c2.rank).not.toBe(c1.rank)
+    expect(b2.rank).toBe(b1.rank)
+    expect(c2.rank).toBe(c1.rank)
   })
 })

@@ -4,18 +4,17 @@ import SortPreference from '../@types/SortPreference'
 import State from '../@types/State'
 import Thunk from '../@types/Thunk'
 import findDescendant from '../selectors/findDescendant'
-import { getAllChildrenAsThoughts } from '../selectors/getChildren'
 import getGlobalSortPreference from '../selectors/getGlobalSortPreference'
 import getSortPreference from '../selectors/getSortPreference'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
 import appendToPath from '../util/appendToPath'
+import { childOrderToTreePlacements, getManualChildOrder, normalizeChildOrder } from '../util/childOrder'
 import head from '../util/head'
 import keyValueBy from '../util/keyValueBy'
 import reducerFlow from '../util/reducerFlow'
 import unroot from '../util/unroot'
 import alert from './alert'
 import deleteAttribute from './deleteAttribute'
-import rerank from './rerank'
 import sort from './sort'
 import toggleAttribute from './toggleAttribute'
 import updateThoughts from './updateThoughts'
@@ -60,27 +59,23 @@ const setSortPreference = (
             path: simplePath,
             value: '=sort',
           }),
-          // restore manual ranks
+          // restore manual child order
           // See: State.manualSortMap
           state => {
-            const manualRanks = state.manualSortMap[id]
-            if (!manualRanks) return state
+            const manualOrder = state.manualSortMap[id]
+            if (!manualOrder) return state
 
-            // get all children with manual ranks that still exist
-            const childrenWithManualRanks = getAllChildrenAsThoughts(state, id).filter(child => child.id in manualRanks)
+            const childOrder = normalizeChildOrder(state.thoughts.thoughtIndex, id, manualOrder)
             return updateThoughts(state, {
-              thoughtIndexUpdates: keyValueBy(childrenWithManualRanks, child => ({
-                [child.id]: {
-                  ...child,
-                  rank: manualRanks[child.id],
-                },
-              })),
+              thoughtIndexUpdates: keyValueBy(childOrder, childId =>
+                state.thoughts.thoughtIndex[childId] ? { [childId]: state.thoughts.thoughtIndex[childId] } : null,
+              ),
               lexemeIndexUpdates: {},
+              childOrderUpdates: { [id]: childOrder },
+              treePlacements: childOrderToTreePlacements(childOrder),
               preventExpandThoughts: true,
             })
           },
-          // rerank in case there are any duplicate ranks
-          rerank(simplePath),
         ])
       : // Set new preference
         reducerFlow([
@@ -91,7 +86,7 @@ const setSortPreference = (
                 ...state,
                 manualSortMap: {
                   ...state.manualSortMap,
-                  [id]: keyValueBy(getAllChildrenAsThoughts(state, id), child => ({ [child.id]: child.rank })),
+                  [id]: getManualChildOrder(state, id),
                 },
               })
             : null,

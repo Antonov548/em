@@ -8,7 +8,7 @@ import moveThoughtAtFirstMatch from '../../test-helpers/moveThoughtAtFirstMatch'
 import initialState from '../../util/initialState'
 import reducerFlow from '../../util/reducerFlow'
 
-it('recalculate absolute ranks while preserving relative order to avoid rank precision errors', () => {
+it('does not rewrite compatibility ranks', () => {
   // add two thoughts normally then use insertBefore to cut the rank in half
   const steps = [
     newThought({ value: 'a' }),
@@ -21,16 +21,11 @@ it('recalculate absolute ranks while preserving relative order to avoid rank pre
 
   const state = reducerFlow(steps)(initialState())
 
-  expect(getChildrenRanked(state, HOME_TOKEN)).toMatchObject([
-    { value: 'a', rank: 0 },
-    { value: 'b', rank: 1 },
-    { value: 'c', rank: 2 },
-    { value: 'd', rank: 3 },
-    { value: 'e', rank: 4 },
-  ])
+  expect(getChildrenRanked(state, HOME_TOKEN).map(child => child.value)).toEqual(['a', 'b', 'c', 'd', 'e'])
+  expect(getChildrenRanked(state, HOME_TOKEN).map(child => child.rank)).toEqual([0, 0.125, 0.25, 0.5, 1])
 })
 
-it('rerank on moveThought if ranks are too close', () => {
+it('moveThought does not auto-rerank when compatibility ranks are close', () => {
   /** Creates a new thought above and deletes the thought below in a way that decreases the new thought's rank. */
   const halveRank = (value: string) =>
     reducerFlow([newThought({ value, insertBefore: true }), cursorDown, deleteThoughtWithCursor])
@@ -55,9 +50,8 @@ it('rerank on moveThought if ranks are too close', () => {
 
   const state = reducerFlow(steps)(initialState())
 
-  expect(getChildrenRanked(state, HOME_TOKEN)).toMatchObject([
-    { value: 'b', rank: 0 },
-    { value: 'c', rank: 1 },
-    { value: 'a', rank: 2 }, // 'a' is still moved to the end of the list
+  expect(getChildrenRanked(state, HOME_TOKEN).map(child => child.value)).toEqual(['b', 'c', 'a'])
+  expect(getChildrenRanked(state, HOME_TOKEN).map(child => child.rank)).toEqual([
+    1.4901161193847656e-8, 2.9802322387695312e-8, 99,
   ])
 })
