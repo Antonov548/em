@@ -9,7 +9,7 @@ import TreeThought from '../@types/TreeThought'
 import { HOME_PATH } from '../constants'
 import calculateAutofocus from '../selectors/calculateAutofocus'
 import findDescendant from '../selectors/findDescendant'
-import getChildren, { childrenFilterPredicate, getChildrenRanked, hasChildren } from '../selectors/getChildren'
+import getChildren, { childrenFilterPredicate, getAllChildrenSorted, hasChildren } from '../selectors/getChildren'
 import getContextsSortedAndRanked from '../selectors/getContextsSortedAndRanked'
 import getStyle from '../selectors/getStyle'
 import getThoughtById from '../selectors/getThoughtById'
@@ -88,7 +88,7 @@ const linearizeTree = (
       : []
     : // context children should render the children of a specific Lexeme instance to avoid repeating the Lexeme.
       // See: contextId (above)
-      getChildrenRanked(state, contextId || thoughtId)
+      getAllChildrenSorted(state, contextId || thoughtId)
   const filteredChildren = children.filter(childrenFilterPredicate(state, simplePath))
 
   // short circuit if the context view only has one context and the NoOtherContexts component will be displayed

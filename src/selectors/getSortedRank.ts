@@ -6,6 +6,56 @@ import getSortPreference from './getSortPreference'
 import noteValue from './noteValue'
 import thoughtToPath from './thoughtToPath'
 
+/** Gets the index where a value would be inserted into the current sorted child order. */
+const getSortedInsertIndex = (state: State, id: ThoughtId, value: string, created?: number): number => {
+  const children = id ? getAllChildrenSorted(state, id) : []
+  if (children.length === 0) return -1
+
+  const sortPreference = getSortPreference(state, id)
+  const isDescending = sortPreference.direction === 'Desc'
+
+  // Handle Updated sorting
+  if (sortPreference.type === 'Updated') {
+    return -1
+  }
+
+  // Handle Created sorting (#3782)
+  if (created && sortPreference.type === 'Created') {
+    return children.findIndex(child =>
+      isDescending ? compare(created, child.created) !== -1 : compare(child.created, created) !== -1,
+    )
+  }
+
+  // Handle Note sorting
+  if (sortPreference.type === 'Note') {
+    const compareFn = isDescending ? compareReasonableDescending : compareReasonable
+    // Only consider visible thoughts since attributes are always sorted to the beginning.
+    // Otherwise this can result in incorrectly in the wrong place, inserting after =sort.
+    const thoughtsVisible = children.filter(isVisible(state))
+    return thoughtsVisible.findIndex(
+      thought => compareFn(noteValue(state, thoughtToPath(state, thought.id)) ?? '', value) !== -1,
+    )
+  }
+
+  // For alphabetical sorting
+  return children.findIndex(child =>
+    isDescending
+      ? compareReasonableDescending(child.value, value) !== -1
+      : compareReasonable(child.value, value) !== -1,
+  )
+}
+
+/** Gets the sibling before a value inserted into the current sorted child order. */
+export const getSortedAfterId = (state: State, id: ThoughtId, value: string, created?: number): ThoughtId | null => {
+  const children = id ? getAllChildrenSorted(state, id) : []
+  const sortPreference = getSortPreference(state, id)
+  const index = getSortedInsertIndex(state, id, value, created)
+  const sortedChildren = sortPreference.type === 'Note' ? children.filter(isVisible(state)) : children
+
+  if (index === 0) return null
+  return sortedChildren[index === -1 ? sortedChildren.length - 1 : index - 1]?.id ?? null
+}
+
 /** Calculates the rank for a given index in a sorted array of thoughts. */
 const calculateRank = (thoughts: { rank: number }[], index: number): number => {
   // if there is no such child, return the rank of the last child + 1
@@ -31,40 +81,23 @@ const getSortedRank = (state: State, id: ThoughtId, value: string, created?: num
   if (children.length === 0) return 0
 
   const sortPreference = getSortPreference(state, id)
-  const isDescending = sortPreference.direction === 'Desc'
   const thoughts = children.filter(thought => !state.cursor || thought.id !== state.cursor[state.cursor.length - 1])
+  const index = getSortedInsertIndex(state, id, value, created)
 
   // Handle Updated sorting
   if (sortPreference.type === 'Updated') {
+    const isDescending = sortPreference.direction === 'Desc'
     return isDescending ? thoughts[0].rank - 1 : (thoughts[thoughts.length - 1]?.rank || 0) + 1
-  }
-
-  // Handle Created sorting (#3782)
-  if (created && sortPreference.type === 'Created') {
-    const index = children.findIndex(child =>
-      isDescending ? compare(created, child.created) !== -1 : compare(child.created, created) !== -1,
-    )
-    return calculateRank(children, index)
   }
 
   // Handle Note sorting
   if (sortPreference.type === 'Note') {
-    const compareFn = isDescending ? compareReasonableDescending : compareReasonable
     // Only consider visible thoughts since attributes are always sorted to the beginning.
     // Otherwise this can result in incorrectly in the wrong place, inserting after =sort.
     const thoughtsVisible = children.filter(isVisible(state))
-    const index = thoughtsVisible.findIndex(
-      thought => compareFn(noteValue(state, thoughtToPath(state, thought.id)) ?? '', value) !== -1,
-    )
     return calculateRank(thoughtsVisible, index)
   }
 
-  // For alphabetical sorting
-  const index = children.findIndex(child =>
-    isDescending
-      ? compareReasonableDescending(child.value, value) !== -1
-      : compareReasonable(child.value, value) !== -1,
-  )
   return calculateRank(children, index)
 }
 

@@ -1,17 +1,15 @@
 import _ from 'lodash'
 import Index from '../@types/IndexType'
 import Path from '../@types/Path'
-import SimplePath from '../@types/SimplePath'
 import State from '../@types/State'
 import Thought from '../@types/Thought'
 import ThoughtId from '../@types/ThoughtId'
 import Thunk from '../@types/Thunk'
 import mergeThoughts from '../actions/mergeThoughts'
-import rerank from '../actions/rerank'
 import updateThoughts from '../actions/updateThoughts'
 import { clientId } from '../data-providers/thoughtspaceSession'
 import expandThoughts from '../selectors/expandThoughts'
-import { getChildrenRanked } from '../selectors/getChildren'
+import { getAllChildrenAsThoughts, getChildrenRanked, getChildrenSorted } from '../selectors/getChildren'
 import getSortPreference from '../selectors/getSortPreference'
 import getSortedRank from '../selectors/getSortedRank'
 import getThoughtById from '../selectors/getThoughtById'
@@ -33,10 +31,8 @@ export interface MoveThoughtPayload {
   oldPath: Path
   newPath: Path
   offset?: number
-  // skip the auto rerank to prevent infinite loop
-  skipRerank?: boolean
-  /** The new rank of the destination thought. This will be ignored if the thought is moved into a sorted context. */
-  newRank: number
+  /** Compatibility rank for older callers. Placement is authoritative. */
+  newRank?: number
   /**
    * ID of sibling after which to place in TreeCRDT.
    * Explicit null means first child.
@@ -51,17 +47,38 @@ export const getMoveThoughtAfterIdByRank = (
   sourceThoughtId: ThoughtId,
   newRank: number,
 ): ThoughtId | null => {
-  const after = getChildrenRanked(state, destinationThoughtId)
+  const after = [...getChildrenRanked(state, destinationThoughtId)]
+    .sort((a, b) => a.rank - b.rank)
     .filter(child => child.id !== sourceThoughtId && child.rank < newRank)
     .at(-1)
 
   return after?.id ?? null
 }
 
+/** Derives a temporary compatibility rank from explicit sibling placement. */
+export const getMoveThoughtRankByPlacement = (
+  state: State,
+  destinationThoughtId: ThoughtId,
+  sourceThoughtId: ThoughtId,
+  afterId: ThoughtId | null,
+): number => {
+  const children = getChildrenSorted(state, destinationThoughtId).filter(child => child.id !== sourceThoughtId)
+  if (children.length === 0) return 0
+
+  if (afterId === null) return children[0].rank - 1
+
+  const afterIndex = children.findIndex(child => child.id === afterId)
+  if (afterIndex === -1) return children[children.length - 1].rank + 1
+
+  const after = children[afterIndex]
+  const next = children[afterIndex + 1]
+  return next ? (after.rank + next.rank) / 2 : after.rank + 1
+}
+
 // @MIGRATION_TODO: use (sourceId and destinationId) or simplePath instead of passing paths. Should low level handle context view logic ??
 /** Moves a thought from one context to another, or within the same context. */
 const moveThought = (state: State, payload: MoveThoughtPayload) => {
-  const { oldPath, newPath, offset, skipRerank, newRank, afterId } = payload
+  const { oldPath, newPath, offset, newRank, afterId } = payload
   // Uncaught TypeError: Cannot perform 'IsArray' on a proxy that has been revoked at Function.isArray (#417)
   const recentlyEdited = state.recentlyEdited
   // try {
@@ -79,7 +96,7 @@ const moveThought = (state: State, payload: MoveThoughtPayload) => {
   const sourceThought = getThoughtById(state, sourceThoughtId)
 
   if (!sourceThought) {
-    console.error({ oldPath, newPath, offset, skipRerank, newRank })
+    console.error({ oldPath, newPath, offset, newRank })
     throw new Error(`moveThought: sourceThought not found. ${JSON.stringify({ oldPath, newPath })}`)
   }
 
@@ -103,7 +120,7 @@ const moveThought = (state: State, payload: MoveThoughtPayload) => {
   }
 
   const sameContext = sourceParentThought.id === destinationThoughtId
-  const childrenOfDestination = getChildrenRanked(state, destinationThoughtId)
+  const childrenOfDestination = getAllChildrenAsThoughts(state, destinationThoughtId)
   if (
     afterId === sourceThought.id ||
     (afterId !== null && !childrenOfDestination.some(child => child.id === afterId))
@@ -128,14 +145,20 @@ const moveThought = (state: State, payload: MoveThoughtPayload) => {
 
   // if move is used for archive then update the archived field to latest timestamp
   const archived = isArchived ? timestamp() : destinationThought.archived
+  const compatibilityRank =
+    newRank ?? getMoveThoughtRankByPlacement(state, destinationThoughtId, sourceThought.id, afterId)
+  const currentAfterId = sameContext
+    ? (() => {
+        const children = getChildrenSorted(state, destinationThoughtId)
+        const index = children.findIndex(child => child.id === sourceThought.id)
+        return index > 0 ? children[index - 1].id : null
+      })()
+    : null
+  const placementChanged = !sameContext || currentAfterId !== afterId
 
   return reducerFlow([
     // disable sort when moving within the same context
-    // skip if skipRerank is set (e.g. rerank) to avoid disabling sort during internal rank normalization
-    sameContext &&
-    !skipRerank &&
-    newRank !== sourceThought.rank &&
-    getSortPreference(state, destinationThoughtId).type !== 'None'
+    sameContext && placementChanged && getSortPreference(state, destinationThoughtId).type !== 'None'
       ? reducerFlow([
           alert({
             value: 'Switched to manual sort because thought was moved',
@@ -192,7 +215,7 @@ const moveThought = (state: State, payload: MoveThoughtPayload) => {
             // get updated sort preference since the context may have been unsorted
             getSortPreference(state, destinationThoughtId).type !== 'None'
               ? getSortedRank(state, destinationThoughtId, sourceThought.value)
-              : newRank,
+              : compatibilityRank,
           ...(archived ? { archived } : null),
           lastUpdated: timestamp(),
           updatedBy: clientId,
@@ -230,27 +253,10 @@ const moveThought = (state: State, payload: MoveThoughtPayload) => {
       ...state,
       expanded: expandThoughts(state, state.cursor),
     }),
-    // rerank context if ranks are too close
-    // skip if this moveThought originated from a rerank
-    // otherwise we get an infinite loop
-    !skipRerank
-      ? state => {
-          const rankPrecision = 10e-8
-          const children = getChildrenRanked(state, head(rootedParentOf(state, newPath)))
-          const ranksTooClose = children.some((thought, i) => {
-            if (i === 0) return false
-            const secondThought = getThoughtById(state, children[i - 1].id)
-            if (!secondThought) return false
-            return Math.abs(thought.rank - secondThought.rank) < rankPrecision
-          })
-          // TODO: Explicitly converting to simplePath becauase context view has not been implemented yet and later we would want to change oldPath and newPath to be sourceThoughtId and destinationThoughtId instead.
-          return ranksTooClose ? rerank(state, rootedParentOf(state, newPath) as SimplePath) : state
-        }
-      : null,
   ])(state)
 }
 
-export type MoveThoughtByRankPayload = Omit<MoveThoughtPayload, 'afterId'>
+export type MoveThoughtByRankPayload = Omit<MoveThoughtPayload, 'afterId' | 'newRank'> & { newRank: number }
 
 /** Explicitly adapts a rank-based move to TreeCRDT relative placement while rank remains in em's action model. */
 const moveThoughtByRankImpl = (state: State, payload: MoveThoughtByRankPayload): State =>

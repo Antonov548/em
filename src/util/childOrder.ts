@@ -2,21 +2,19 @@ import Index from '../@types/IndexType'
 import State from '../@types/State'
 import Thought from '../@types/Thought'
 import ThoughtId from '../@types/ThoughtId'
-import compareByRank from '../util/compareByRank'
 
-/** Returns rank-sorted child ids from a thought index. Used only as the compatibility fallback. */
-const getRankedChildIds = (thoughtIndex: Index<Thought>, parentId: ThoughtId): ThoughtId[] => {
+/** Returns child ids from a thought's childrenMap without applying a rank-based ordering. */
+const getChildrenMapChildIds = (thoughtIndex: Index<Thought>, parentId: ThoughtId): ThoughtId[] => {
   const parent = thoughtIndex[parentId]
   if (!parent) return []
 
   return Object.values(parent.childrenMap || {})
     .map(childId => thoughtIndex[childId])
     .filter((thought): thought is Thought => !!thought && thought.parentId === parentId)
-    .sort(compareByRank)
     .map(thought => thought.id)
 }
 
-/** Filters stale ids from a child order projection and appends any missing children in rank order. */
+/** Filters stale ids from a child order projection and appends any missing children in childrenMap order. */
 export const normalizeChildOrder = (
   thoughtIndex: Index<Thought>,
   parentId: ThoughtId,
@@ -33,16 +31,16 @@ export const normalizeChildOrder = (
     return valid
   })
 
-  const missing = getRankedChildIds(thoughtIndex, parentId).filter(childId => !seen.has(childId))
+  const missing = getChildrenMapChildIds(thoughtIndex, parentId).filter(childId => !seen.has(childId))
   return [...ordered, ...missing]
 }
 
-/** Returns the manual child order, falling back to rank while em still carries rank in Thought. */
+/** Returns the manual child order, falling back to childrenMap order if no explicit order exists yet. */
 export const getManualChildOrder = (state: State, parentId: ThoughtId): ThoughtId[] => {
   const childOrder = state.thoughts.childOrder?.[parentId]
   return childOrder
     ? normalizeChildOrder(state.thoughts.thoughtIndex, parentId, childOrder)
-    : getRankedChildIds(state.thoughts.thoughtIndex, parentId)
+    : getChildrenMapChildIds(state.thoughts.thoughtIndex, parentId)
 }
 
 /** Applies a TreeCRDT-style placement to an ordered child id array. */
@@ -59,6 +57,13 @@ export const applyTreePlacement = (
 
   return [...withoutThought.slice(0, afterIndex + 1), thoughtId, ...withoutThought.slice(afterIndex + 1)]
 }
+
+/** Converts an ordered child id list to per-child TreeCRDT after placements. */
+export const childOrderToTreePlacements = (childOrder: ThoughtId[]): Index<ThoughtId | null> =>
+  childOrder.reduce<Index<ThoughtId | null>>((acc, childId, i) => {
+    acc[childId] = i === 0 ? null : childOrder[i - 1]
+    return acc
+  }, {})
 
 /** Derives the next child order projection from Redux updates and explicit TreeCRDT placements. */
 export const updateChildOrder = ({

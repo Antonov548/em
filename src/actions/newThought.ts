@@ -4,7 +4,7 @@ import SimplePath from '../@types/SimplePath'
 import State from '../@types/State'
 import ThoughtId from '../@types/ThoughtId'
 import Thunk from '../@types/Thunk'
-import { createThoughtByRank as createThought } from '../actions/createThought'
+import createThought from '../actions/createThought'
 import setCursor from '../actions/setCursor'
 import tutorialNext from '../actions/tutorialNext'
 import tutorialStepReducer from '../actions/tutorialStep'
@@ -29,15 +29,11 @@ import {
 } from '../constants'
 import asyncFocus from '../device/asyncFocus'
 import getTextContentFromHTML from '../device/getTextContentFromHTML'
-import { getChildrenSorted } from '../selectors/getChildren'
-import getNextRank from '../selectors/getNextRank'
-import getPrevRank from '../selectors/getPrevRank'
-import getRankAfter from '../selectors/getRankAfter'
-import getRankBefore from '../selectors/getRankBefore'
+import { getAllChildrenSorted, getChildrenSorted } from '../selectors/getChildren'
 import getRootPath from '../selectors/getRootPath'
 import getSetting from '../selectors/getSetting'
 import getSortPreference from '../selectors/getSortPreference'
-import getSortedRank from '../selectors/getSortedRank'
+import { getSortedAfterId } from '../selectors/getSortedRank'
 import isContextViewActive from '../selectors/isContextViewActive'
 import rootedParentOf from '../selectors/rootedParentOf'
 import simplifyPath from '../selectors/simplifyPath'
@@ -46,6 +42,7 @@ import appendToPath from '../util/appendToPath'
 import createId from '../util/createId'
 import head from '../util/head'
 import headValue from '../util/headValue'
+import isAttribute from '../util/isAttribute'
 import isRoot from '../util/isRoot'
 import once from '../util/once'
 import parentOf from '../util/parentOf'
@@ -66,7 +63,7 @@ export interface NewThoughtPayload {
   splitSource?: ThoughtId
 }
 
-/** Adds a new thought to the cursor. Calculates the rank to add the new thought above, below, or within a thought.
+/** Adds a new thought to the cursor. Calculates where to add the new thought above, below, or within a thought.
  *
  * @param offset The focusOffset of the selection in the new thought. Defaults to end.
  */
@@ -138,24 +135,37 @@ const newThought = (state: State, payload: NewThoughtPayload | string) => {
   // if the sort preference is Created, then the current timestamp will be used to sort the new thought into place (#3782)
   const created = Date.now()
   const sortPreference = getSortPreference(state, insertId)
+  /** Gets the sibling before a child in the current visible/display order. */
+  const previousSiblingId = (parentId: ThoughtId, childId: ThoughtId): ThoughtId | null => {
+    const children = getChildrenSorted(state, parentId)
+    const index = children.findIndex(child => child.id === childId)
+    return index > 0 ? children[index - 1].id : null
+  }
+  /** Gets the last child in the current visible/display order. */
+  const lastChildId = (parentId: ThoughtId): ThoughtId | null => getChildrenSorted(state, parentId).at(-1)?.id ?? null
+  /** Gets the sibling after which a new first visible child should be placed. */
+  const topVisiblePlacementAfterId = (parentId: ThoughtId): ThoughtId | null => {
+    if (aboveMeta || state.showHiddenThoughts) return null
+    const children = getAllChildrenSorted(state, parentId)
+    const firstVisibleIndex = children.findIndex(child => !isAttribute(child.value))
+    return firstVisibleIndex > 0 ? children[firstVisibleIndex - 1].id : null
+  }
 
   // if meta key is pressed, add a child instead of a sibling of the current thought
   // if shift key is pressed, insert the child before the current thought
-  const newRank = insertContext
-    ? getNextRank(state, ABSOLUTE_TOKEN)
+  const afterId = insertContext
+    ? lastChildId(ABSOLUTE_TOKEN)
     : sortPreference.type === 'Created' || (value !== '' && sortPreference.type === 'Alphabetical')
-      ? getSortedRank(state, insertId, value, created)
+      ? getSortedAfterId(state, insertId, value, created)
       : insertBefore
         ? insertNewSubthought || !simplePath || isRoot(simplePath)
-          ? getPrevRank(state, insertId, { aboveMeta })
-          : getRankBefore(state, simplePath)
-        : insertNewSubthought || !simplePath
-          ? // if inserting an empty thought into a sorted context via insertNewSubthought, get the rank after the last sorted child rather than incrementing the highest rank
-            // otherwise the empty thought will not be correctly sorted by resortEmptyInPlace
-            value === '' && sortPreference.type === 'Alphabetical' && getLastSortedChildPath()
-            ? getRankAfter(state, getLastSortedChildPath()!)
-            : getNextRank(state, insertId)
-          : getRankAfter(state, simplePath)
+          ? topVisiblePlacementAfterId(insertId)
+          : previousSiblingId(head(parentPath), head(simplePath))
+        : insertNewSubthought || !simplePath || isRoot(simplePath)
+          ? value === '' && sortPreference.type === 'Alphabetical' && getLastSortedChildPath()
+            ? head(getLastSortedChildPath()!)
+            : lastChildId(insertId)
+          : head(simplePath)
 
   // when creating a new context in a context view, newThoughtId is the new empty thought (a/~m/_), and newContextId is the newly added Lexeme context (/ABS/_/m)
   const newThoughtId = createId()
@@ -165,8 +175,8 @@ const newThought = (state: State, payload: NewThoughtPayload | string) => {
     // createThought
     createThought({
       ...(insertContext ? { children: [newContextId!] } : null),
+      afterId,
       path: insertContext ? ABSOLUTE_PATH : insertNewSubthought ? simplePath : parentPath,
-      rank: newRank,
       value,
       id: newThoughtId,
       idbSynced,
@@ -176,8 +186,8 @@ const newThought = (state: State, payload: NewThoughtPayload | string) => {
     // if adding a new context to the context view, add the thought to the new context
     insertContext
       ? createThought({
+          afterId: null,
           path: [ABSOLUTE_TOKEN, newThoughtId] as unknown as SimplePath,
-          rank: 0,
           value: headValue(state, insertNewSubthought ? path : parentOf(path)) ?? '',
           id: newContextId!,
           splitSource,

@@ -199,7 +199,15 @@ const saveThoughts = (
       }
 
       if (block.children.length > 0) {
-        const updates = saveThoughts(updatedState, childPath, block.children, emRankIncrement, emRankStart, lastUpdated)
+        const updates = saveThoughts(
+          updatedState,
+          childPath,
+          block.children,
+          emRankIncrement,
+          skipLevel ? emRank : emRankStart,
+          lastUpdated,
+          updatedBy,
+        )
 
         return {
           lexemeIndex: {

@@ -27,7 +27,7 @@ import attribute from '../selectors/attribute'
 import attributeEquals from '../selectors/attributeEquals'
 import childIdsToThoughts from '../selectors/childIdsToThoughts'
 import findDescendant from '../selectors/findDescendant'
-import getChildren, { getAllChildrenAsThoughts, getChildrenRanked } from '../selectors/getChildren'
+import getChildren, { getAllChildrenAsThoughts, getAllChildrenSorted } from '../selectors/getChildren'
 import getStyle from '../selectors/getStyle'
 import getThoughtById from '../selectors/getThoughtById'
 import isContextViewActive from '../selectors/isContextViewActive'
@@ -94,7 +94,7 @@ export interface ThoughtContainerProps {
   updateSize?: () => void
 }
 
-/** Returns true if two lists of children are equal. Deeply compares id, value, and rank. */
+/** Returns true if two lists of children are equal. Deeply compares id and renderable value. */
 const equalChildren = (a: Thought[], b: Thought[]) =>
   a === b ||
   (a && b && a.length === b.length && a.every((thought, i) => equalThoughtRanked(a[i], b[i]) && a[i].id === b[i].id))
@@ -266,8 +266,9 @@ const ThoughtContainer = ({
   const dispatch = useDispatch()
   const thoughtId = head(simplePath)
   const children = useSelector<Thought[]>(
-    state => (childrenForced ? childIdsToThoughts(state, childrenForced) : getChildrenRanked(state, head(simplePath))),
-    // only compare id, value, and rank for re-renders
+    state =>
+      childrenForced ? childIdsToThoughts(state, childrenForced) : getAllChildrenSorted(state, head(simplePath)),
+    // only compare id and renderable value for re-renders
     equalChildren,
   )
   // const contextBinding = useSelector(
