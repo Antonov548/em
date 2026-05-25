@@ -7,7 +7,6 @@ import SimplePath from '../@types/SimplePath'
 import State from '../@types/State'
 import Thought from '../@types/Thought'
 import ThoughtId from '../@types/ThoughtId'
-import ThoughtIndices from '../@types/ThoughtIndices'
 import Timestamp from '../@types/Timestamp'
 import { deleteThought } from '../actions'
 import { getCreateThoughtAfterIdByRank } from '../actions/createThought'
@@ -36,7 +35,9 @@ export interface ImportJSONOptions {
   updatedBy?: string
 }
 
-type ImportThoughtUpdates = ThoughtIndices & {
+type ImportThoughtUpdates = {
+  thoughtIndex: Index<Thought>
+  lexemeIndex: Index<Lexeme>
   treePlacements: Index<ThoughtId | null>
 }
 
@@ -150,7 +151,11 @@ const saveThoughts = (
 
       const stateNewBeforeInsert: State = {
         ...state,
-        thoughts: mergeThoughts(state.thoughts, accum),
+        thoughts: mergeThoughts(state.thoughts, {
+          childOrder: {},
+          thoughtIndex: accum.thoughtIndex,
+          lexemeIndex: accum.lexemeIndex,
+        }),
       }
 
       const insertUpdates = !skipLevel

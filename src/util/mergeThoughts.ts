@@ -8,6 +8,10 @@ const mergeThoughts = (...thoughtsArgs: ThoughtIndices[]): ThoughtIndices =>
         {
           ...thoughtsArgs[0],
           ...thoughtsArgs[1],
+          childOrder: {
+            ...(thoughtsArgs[0].childOrder || {}),
+            ...(thoughtsArgs[1].childOrder || {}),
+          },
           thoughtIndex: {
             ...thoughtsArgs[0].thoughtIndex,
             ...thoughtsArgs[1].thoughtIndex,

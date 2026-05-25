@@ -274,6 +274,7 @@ async function* fetchDescendants(
     accumulatedThoughts.lexemeIndex = { ...accumulatedThoughts.lexemeIndex, ...lexemeIndex }
 
     yield {
+      childOrder: {},
       thoughtIndex,
       lexemeIndex,
     }

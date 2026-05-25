@@ -105,6 +105,7 @@ export const pullActionCreator =
 
     // limit arity of mergeThoughts to 2 so that index does not get passed where a ThoughtIndices is expected
     const thoughts = thoughtChunks.reduce<ThoughtIndices>(_.ary(mergeThoughts, 2), {
+      childOrder: {},
       thoughtIndex: {},
       lexemeIndex: {},
     })

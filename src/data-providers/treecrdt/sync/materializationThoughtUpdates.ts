@@ -12,6 +12,8 @@ import type { DataProvider } from '../../DataProvider'
 export type MaterializationThoughtRefresh = {
   /** Thought ids removed from the tree. */
   deletedIds: ThoughtId[]
+  /** Manual sibling order updates derived from TreeCRDT parent child order. */
+  childOrderUpdates: Index<ThoughtId[]>
   /** Thoughts to merge into Redux (tree state after materialization). */
   thoughts: Thought[]
   /** Lexeme rows for the refreshed thoughts' values. */
@@ -84,9 +86,10 @@ const removeLexemeContext = async (
         }
 }
 
-/** Applies TreeCRDT sibling order to em's temporary rank projection for one parent. */
-const addTreeOrderRankProjection = async (
+/** Applies TreeCRDT sibling order to em's child order read projection. */
+const addTreeOrderProjection = async (
   updates: Index<Thought>,
+  childOrderUpdates: Index<ThoughtId[]>,
   db: DataProvider,
   parentId: ThoughtId,
 ): Promise<void> => {
@@ -96,14 +99,7 @@ const addTreeOrderRankProjection = async (
   updates[parent.id] = parent
 
   const orderedChildIds = Object.values(parent.childrenMap || {})
-  for (const [rank, childId] of orderedChildIds.entries()) {
-    const child = await db.getThoughtById(childId)
-    if (!child) continue
-    updates[child.id] = {
-      ...child,
-      rank,
-    }
-  }
+  childOrderUpdates[parent.id] = orderedChildIds
 }
 
 /** Collects affected ids from materialization changes, loads fresh thoughts + lexemes from the provider. */
@@ -157,6 +153,7 @@ export async function refreshThoughtsFromMaterializationChanges(
 
   const thoughts: Thought[] = []
   const thoughtIndexUpdates: Index<Thought> = {}
+  const childOrderUpdates: Index<ThoughtId[]> = {}
   const lexemeIndexUpdates: Index<Lexeme | null> = {}
 
   for (const id of touched) {
@@ -170,11 +167,9 @@ export async function refreshThoughtsFromMaterializationChanges(
     await addLexemeContext(lexemeIndexUpdates, state, db, thought)
   }
 
-  // Current em selectors still sort by numeric rank. For remote/order-only TreeCRDT changes, derive a local rank
-  // projection from the authoritative TreeCRDT child order without exposing TreeCRDT's internal order keys.
-  // TODO: Remove when read-side selectors consume provider-backed sibling order instead of rank projection.
+  // Manual-order selectors consume childOrder directly, so materialization does not rewrite every sibling rank.
   for (const parentId of orderParents) {
-    await addTreeOrderRankProjection(thoughtIndexUpdates, db, parentId)
+    await addTreeOrderProjection(thoughtIndexUpdates, childOrderUpdates, db, parentId)
   }
 
   for (const id of deleted) {
@@ -189,6 +184,7 @@ export async function refreshThoughtsFromMaterializationChanges(
 
   return {
     deletedIds: [...deleted],
+    childOrderUpdates,
     thoughts,
     lexemeIndexUpdates,
   }

@@ -6,6 +6,7 @@ import PushBatch from '../@types/PushBatch'
 import SimplePath from '../@types/SimplePath'
 import State from '../@types/State'
 import Thought from '../@types/Thought'
+import ThoughtId from '../@types/ThoughtId'
 import Thunk from '../@types/Thunk'
 import { editThoughtPayload } from '../actions/editThought'
 import { ABSOLUTE_TOKEN, EM_TOKEN, HOME_TOKEN } from '../constants'
@@ -18,6 +19,7 @@ import rootedParentOf from '../selectors/rootedParentOf'
 import simplifyPath from '../selectors/simplifyPath'
 import thoughtToPath from '../selectors/thoughtToPath'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
+import { updateChildOrder } from '../util/childOrder'
 import head from '../util/head'
 import keyValueBy from '../util/keyValueBy'
 import mergeUpdates from '../util/mergeUpdates'
@@ -25,6 +27,8 @@ import nonNull from '../util/nonNull'
 import reducerFlow from '../util/reducerFlow'
 
 export type UpdateThoughtsOptions = Omit<PushBatch, 'lexemeIndexUpdatesOld'> & {
+  /** App-side sibling order projection. TreeCRDT materialization writes this directly. */
+  childOrderUpdates?: Index<ThoughtId[]>
   contextChain?: SimplePath[]
   cursorOffset?: number
   // callback for when the updates have been synced with IDB
@@ -165,6 +169,7 @@ const dataIntegrityCheck =
 const updateThoughts = (
   state: State,
   {
+    childOrderUpdates,
     cursorOffset,
     lexemeIndexUpdates,
     thoughtIndexUpdates,
@@ -181,7 +186,12 @@ const updateThoughts = (
     repairCursor,
   }: UpdateThoughtsOptions,
 ) => {
-  if (Object.keys(thoughtIndexUpdates).length === 0 && Object.keys(lexemeIndexUpdates).length === 0) return state
+  if (
+    Object.keys(thoughtIndexUpdates).length === 0 &&
+    Object.keys(lexemeIndexUpdates).length === 0 &&
+    Object.keys(childOrderUpdates || {}).length === 0
+  )
+    return state
 
   const thoughtIndexOld = { ...state.thoughts.thoughtIndex }
   const lexemeIndexOld = { ...state.thoughts.lexemeIndex }
@@ -190,6 +200,13 @@ const updateThoughts = (
   // TODO: Can we use { overwritePending: !local } and get rid of the overwritePending option to updateThoughts? i.e. Are there any false positives when local is false?
   const thoughtIndex = mergeUpdates(thoughtIndexOld, thoughtIndexUpdates, { overwritePending })
   const lexemeIndex = mergeUpdates(lexemeIndexOld, lexemeIndexUpdates, { overwritePending })
+  const childOrder = updateChildOrder({
+    childOrderUpdates,
+    state,
+    thoughtIndex,
+    thoughtIndexUpdates,
+    treePlacements,
+  })
 
   const recentlyEditedNew = recentlyEdited || state.recentlyEdited
 
@@ -238,6 +255,7 @@ const updateThoughts = (
       recentlyEdited: recentlyEditedNew,
       pushQueue: [...state.pushQueue, batch],
       thoughts: {
+        childOrder,
         thoughtIndex,
         lexemeIndex,
       },

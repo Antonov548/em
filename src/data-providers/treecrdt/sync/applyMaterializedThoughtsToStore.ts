@@ -36,11 +36,8 @@ export async function applyMaterializedThoughtsToStore(event: MaterializationEve
   await waitForTreecrdtWriteBarrier()
 
   const stateBefore = store.getState()
-  const { deletedIds, thoughts, lexemeIndexUpdates } = await refreshThoughtsFromMaterializationChanges(
-    event.changes,
-    thoughtspaceDb,
-    stateBefore,
-  )
+  const { deletedIds, childOrderUpdates, thoughts, lexemeIndexUpdates } =
+    await refreshThoughtsFromMaterializationChanges(event.changes, thoughtspaceDb, stateBefore)
 
   await persistDerivedLexemeUpdates(lexemeIndexUpdates, stateBefore.schemaVersion)
 
@@ -63,9 +60,14 @@ export async function applyMaterializedThoughtsToStore(event: MaterializationEve
     thoughtIndexUpdates[latest.id] = latestWithPending
   }
 
-  if (Object.keys(thoughtIndexUpdates).length > 0 || Object.keys(lexemeIndexUpdates).length > 0) {
+  if (
+    Object.keys(thoughtIndexUpdates).length > 0 ||
+    Object.keys(lexemeIndexUpdates).length > 0 ||
+    Object.keys(childOrderUpdates).length > 0
+  ) {
     store.dispatch(
       updateThoughtsActionCreator({
+        childOrderUpdates,
         thoughtIndexUpdates,
         lexemeIndexUpdates,
         local: false,

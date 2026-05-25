@@ -8,6 +8,7 @@ import ThoughtContext from '../@types/ThoughtContext'
 import ThoughtId from '../@types/ThoughtId'
 import getSortPreference from '../selectors/getSortPreference'
 import appendToPath from '../util/appendToPath'
+import { getManualChildOrder } from '../util/childOrder'
 import compareByRank from '../util/compareByRank'
 import {
   compareThought,
@@ -123,6 +124,13 @@ export const getChildrenRanked = (state: State, thoughtId: ThoughtId | null): Th
   return sort(allChildren, compareByRank)
 }
 
+/** Gets children in the app's manual sibling order. Falls back to rank when no explicit order exists yet. */
+export const getChildrenManual = (state: State, thoughtId: ThoughtId | null): Thought[] => {
+  if (!thoughtId) return NO_CHILDREN
+  const children = childIdsToThoughts(state, getManualChildOrder(state, thoughtId))
+  return children.length === 0 ? NO_CHILDREN : children
+}
+
 /** Returns any child of a thought. Only use on a thought with a single child. Also see: firstVisibleChild. */
 export const anyChild = (state: State, id: ThoughtId | undefined | null): Thought | undefined => {
   if (!id) return undefined
@@ -198,7 +206,7 @@ export const getAllChildrenSorted = (state: State, id: ThoughtId): Thought[] => 
   } else if (sortPreference.type === 'Note') {
     return getChildrenSortedNote(state, id)
   } else {
-    return getChildrenRanked(state, id)
+    return getChildrenManual(state, id)
   }
 }
 

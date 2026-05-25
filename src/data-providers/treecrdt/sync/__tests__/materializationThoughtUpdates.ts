@@ -42,7 +42,7 @@ const fakeProvider = (thoughts: Index<Thought>): DataProvider =>
     getLexemeById: async () => undefined,
   }) as unknown as DataProvider
 
-it('projects TreeCRDT sibling order into compatibility ranks', async () => {
+it('projects TreeCRDT sibling order into childOrder without rewriting sibling ranks', async () => {
   const oldParent = thought(HOME_TOKEN, HOME_TOKEN, 0, ROOT_PARENT_ID, [A_ID, B_ID, C_ID])
   const newParent = thought(HOME_TOKEN, HOME_TOKEN, 0, ROOT_PARENT_ID, [C_ID, A_ID, B_ID])
   const thoughtA = thought(A_ID, 'a', 0, HOME_TOKEN)
@@ -51,6 +51,9 @@ it('projects TreeCRDT sibling order into compatibility ranks', async () => {
   const state = {
     ...initialState(),
     thoughts: {
+      childOrder: {
+        [HOME_TOKEN]: [A_ID, B_ID, C_ID],
+      },
       thoughtIndex: {
         [HOME_TOKEN]: oldParent,
         [A_ID]: thoughtA,
@@ -74,10 +77,11 @@ it('projects TreeCRDT sibling order into compatibility ranks', async () => {
 
   const updates = Object.fromEntries(result.thoughts.map(nextThought => [nextThought.id, nextThought]))
 
+  expect(result.childOrderUpdates[HOME_TOKEN]).toEqual([C_ID, A_ID, B_ID])
   expect(Object.values(updates[HOME_TOKEN].childrenMap)).toEqual([C_ID, A_ID, B_ID])
-  expect(updates[C_ID].rank).toBe(0)
-  expect(updates[A_ID].rank).toBe(1)
-  expect(updates[B_ID].rank).toBe(2)
+  expect(updates[C_ID].rank).toBe(2)
+  expect(updates[A_ID]).toBeUndefined()
+  expect(updates[B_ID]).toBeUndefined()
 })
 
 it('projects TreeCRDT sibling order for both parents after a cross-parent move', async () => {
@@ -92,6 +96,7 @@ it('projects TreeCRDT sibling order for both parents after a cross-parent move',
   const state = {
     ...initialState(),
     thoughts: {
+      childOrder: {},
       thoughtIndex: {
         [LEFT_ID]: oldLeft,
         [RIGHT_ID]: oldRight,
@@ -117,10 +122,12 @@ it('projects TreeCRDT sibling order for both parents after a cross-parent move',
 
   const updates = Object.fromEntries(result.thoughts.map(nextThought => [nextThought.id, nextThought]))
 
+  expect(result.childOrderUpdates[LEFT_ID]).toEqual([B_ID])
+  expect(result.childOrderUpdates[RIGHT_ID]).toEqual([C_ID, A_ID])
   expect(Object.values(updates[LEFT_ID].childrenMap)).toEqual([B_ID])
   expect(Object.values(updates[RIGHT_ID].childrenMap)).toEqual([C_ID, A_ID])
-  expect(updates[B_ID].rank).toBe(0)
-  expect(updates[C_ID].rank).toBe(0)
+  expect(updates[B_ID]).toBeUndefined()
+  expect(updates[C_ID]).toBeUndefined()
   expect(updates[A_ID]).toMatchObject({
     parentId: RIGHT_ID,
     rank: 1,
@@ -137,6 +144,9 @@ it('does not project sibling order for payload-only changes', async () => {
   const state = {
     ...initialState(),
     thoughts: {
+      childOrder: {
+        [HOME_TOKEN]: [A_ID, B_ID, C_ID],
+      },
       thoughtIndex: {
         [HOME_TOKEN]: oldParent,
         [A_ID]: thoughtAOld,
@@ -148,7 +158,7 @@ it('does not project sibling order for payload-only changes', async () => {
   }
 
   const result = await refreshThoughtsFromMaterializationChanges(
-    [{ kind: 'payload', node: A_ID, payload: new Uint8Array() }],
+    [{ kind: 'payload', node: A_ID, payload: null }],
     fakeProvider({
       [HOME_TOKEN]: providerParent,
       [A_ID]: thoughtANew,
@@ -159,4 +169,5 @@ it('does not project sibling order for payload-only changes', async () => {
   )
 
   expect(result.thoughts.map(nextThought => nextThought.id)).toEqual([A_ID])
+  expect(result.childOrderUpdates).toEqual({})
 })

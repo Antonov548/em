@@ -32,6 +32,7 @@ describe('normal view', () => {
     const thoughtAId = contextToThoughtId(stateNew, ['a'])!
     const thoughtBId = contextToThoughtId(stateNew, ['b'])!
     expect(stateNew.pushQueue.at(-1)?.treePlacements?.[thoughtBId]).toBe(thoughtAId)
+    expect(stateNew.thoughts.childOrder[HOME_TOKEN]).toEqual([thoughtAId, thoughtBId])
   })
 
   it('new thought before', () => {
@@ -45,8 +46,10 @@ describe('normal view', () => {
   - a`)
 
     const thoughtBId = contextToThoughtId(stateNew, ['b'])!
+    const thoughtAId = contextToThoughtId(stateNew, ['a'])!
     expect(stateNew.pushQueue.at(-1)?.treePlacements).toHaveProperty(thoughtBId)
     expect(stateNew.pushQueue.at(-1)?.treePlacements?.[thoughtBId]).toBeNull()
+    expect(stateNew.thoughts.childOrder[HOME_TOKEN]).toEqual([thoughtBId, thoughtAId])
   })
 
   it('new subthought', () => {
