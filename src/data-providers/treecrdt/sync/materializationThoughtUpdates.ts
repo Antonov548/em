@@ -163,7 +163,6 @@ export async function refreshThoughtsFromMaterializationChanges(
     const thought = await db.getThoughtById(id)
     if (!thought) continue
     thoughtIndexUpdates[thought.id] = thought
-    orderParents.add(thought.parentId)
     const previous = state.thoughts.thoughtIndex[id]
     if (previous && previous.value !== thought.value) {
       await removeLexemeContext(lexemeIndexUpdates, state, db, previous)

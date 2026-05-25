@@ -21,7 +21,7 @@ import parentOf from '../util/parentOf'
 import reducerFlow from '../util/reducerFlow'
 import removeContext from '../util/removeContext'
 import timestamp from '../util/timestamp'
-import moveThought from './moveThought'
+import { moveThoughtByRank as moveThought } from './moveThought'
 import updateThoughts from './updateThoughts'
 
 /**

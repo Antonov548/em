@@ -1,7 +1,7 @@
 import _ from 'lodash'
 import SimplePath from '../@types/SimplePath'
 import State from '../@types/State'
-import moveThought from '../actions/moveThought'
+import { moveThoughtByRank as moveThought } from '../actions/moveThought'
 import { getChildrenRanked } from '../selectors/getChildren'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
 import appendToPath from '../util/appendToPath'

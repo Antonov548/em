@@ -126,3 +126,37 @@ it('projects TreeCRDT sibling order for both parents after a cross-parent move',
     rank: 1,
   })
 })
+
+it('does not project sibling order for payload-only changes', async () => {
+  const oldParent = thought(HOME_TOKEN, HOME_TOKEN, 0, ROOT_PARENT_ID, [A_ID, B_ID, C_ID])
+  const providerParent = thought(HOME_TOKEN, HOME_TOKEN, 0, ROOT_PARENT_ID, [C_ID, A_ID, B_ID])
+  const thoughtAOld = thought(A_ID, 'a', 0, HOME_TOKEN)
+  const thoughtANew = thought(A_ID, 'a updated', 0, HOME_TOKEN)
+  const thoughtB = thought(B_ID, 'b', 1, HOME_TOKEN)
+  const thoughtC = thought(C_ID, 'c', 2, HOME_TOKEN)
+  const state = {
+    ...initialState(),
+    thoughts: {
+      thoughtIndex: {
+        [HOME_TOKEN]: oldParent,
+        [A_ID]: thoughtAOld,
+        [B_ID]: thoughtB,
+        [C_ID]: thoughtC,
+      },
+      lexemeIndex: {},
+    },
+  }
+
+  const result = await refreshThoughtsFromMaterializationChanges(
+    [{ kind: 'payload', node: A_ID, payload: new Uint8Array() }],
+    fakeProvider({
+      [HOME_TOKEN]: providerParent,
+      [A_ID]: thoughtANew,
+      [B_ID]: thoughtB,
+      [C_ID]: thoughtC,
+    }),
+    state,
+  )
+
+  expect(result.thoughts.map(nextThought => nextThought.id)).toEqual([A_ID])
+})

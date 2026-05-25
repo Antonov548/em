@@ -1,7 +1,7 @@
 import State from '../@types/State'
 import Thunk from '../@types/Thunk'
 import alert from '../actions/alert'
-import moveThought from '../actions/moveThought'
+import { moveThoughtByRank as moveThought } from '../actions/moveThought'
 import findDescendant from '../selectors/findDescendant'
 import { anyChild } from '../selectors/getChildren'
 import getRankAfter from '../selectors/getRankAfter'

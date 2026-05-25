@@ -28,7 +28,7 @@ const mergeBatch = (accum: PushBatch, batch: Partial<PushBatch>): PushBatch => (
     ...batch.recentlyEdited,
   },
   pendingDeletes: [...(accum.pendingDeletes || []), ...(batch.pendingDeletes || [])],
-  movePlacements: { ...(accum.movePlacements || {}), ...(batch.movePlacements || {}) },
+  treePlacements: { ...(accum.treePlacements || {}), ...(batch.treePlacements || {}) },
   updates: {
     ...accum.updates,
     ...batch.updates,

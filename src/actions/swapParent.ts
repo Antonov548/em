@@ -1,7 +1,7 @@
 import _ from 'lodash'
 import State from '../@types/State'
 import Thunk from '../@types/Thunk'
-import moveThought from '../actions/moveThought'
+import { moveThoughtByRank as moveThought } from '../actions/moveThought'
 import sort from '../actions/sort'
 import { getChildrenRanked } from '../selectors/getChildren'
 import getThoughtById from '../selectors/getThoughtById'
