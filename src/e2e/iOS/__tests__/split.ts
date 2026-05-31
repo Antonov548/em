@@ -2,7 +2,7 @@
  * IOS Safari thought splitting tests.
  * Uses WDIO test runner with Mocha framework.
  */
-import waitForEmIdle from '../../puppeteer/helpers/waitForEmIdle'
+import waitForEmIdle from '../helpers/waitForEmIdle'
 import clickThought from '../helpers/clickThought'
 import getEditingText from '../helpers/getEditingText'
 import getSelection from '../helpers/getSelection'

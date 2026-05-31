@@ -1,12 +1,7 @@
-import { page } from '../setup'
+import waitForBrowserSettledWebdriver from '../../browserEnvironment/helpers/waitForBrowserSettled'
+import asBrowserEnvironment from './asBrowserEnvironment'
 
 /** Waits for browser layout, paint, and queued macrotasks to settle after DOM-affecting e2e actions. */
-const waitForBrowserSettled = async (): Promise<void> => {
-  await page.evaluate(async () => {
-    await new Promise(requestAnimationFrame)
-    await new Promise(requestAnimationFrame)
-    await new Promise(resolve => setTimeout(resolve))
-  })
-}
+const waitForBrowserSettled = (): Promise<void> => waitForBrowserSettledWebdriver(asBrowserEnvironment())
 
 export default waitForBrowserSettled

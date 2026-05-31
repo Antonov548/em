@@ -3,7 +3,7 @@
  * Uses WDIO test runner with Mocha framework.
  */
 import gestures from '../../../test-helpers/gestures'
-import waitForEmIdle from '../../puppeteer/helpers/waitForEmIdle'
+import waitForEmIdle from '../helpers/waitForEmIdle'
 import clickThought from '../helpers/clickThought'
 import editThought from '../helpers/editThought'
 import gesture from '../helpers/gesture'
