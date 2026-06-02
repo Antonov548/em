@@ -2,6 +2,7 @@
  * IOS Safari caret positioning tests.
  * Uses WDIO test runner with Mocha framework.
  */
+import type { WindowEm } from '../../../initialize'
 import gestures from '../../../test-helpers/gestures'
 import clickThought from '../helpers/clickThought'
 import editThought from '../helpers/editThought'
@@ -22,6 +23,12 @@ import waitUntil from '../helpers/waitUntil'
 // tests succeeds individually, but fails when there are too many tests running in parallel
 // https://github.com/cybersemics/em/issues/1475
 // https://github.com/cybersemics/em/issues/1523
+
+/** Expects em to be in cursor-only mode, without native keyboard/edit mode. */
+const expectKeyboardClosed = async () => {
+  const keyboardOpen = await browser.execute(() => (window.em as WindowEm).testHelpers.getState().isKeyboardOpen)
+  expect(keyboardOpen).not.toBe(true)
+}
 
 describe('Caret', () => {
   it('Enter edit mode', async () => {
@@ -58,6 +65,8 @@ describe('Caret', () => {
 
     const selectionTextContent = await getSelection().focusNode?.textContent
     expect(selectionTextContent).toBe(null)
+
+    await expectKeyboardClosed()
   })
 
   it('No uncle loop', async () => {
@@ -185,6 +194,8 @@ describe('Caret', () => {
 
     const selectionTextContent = await getSelection().focusNode?.textContent
     expect(selectionTextContent).toBe(null)
+
+    await expectKeyboardClosed()
   })
 
   it.skip('Swipe over hidden thought', async () => {

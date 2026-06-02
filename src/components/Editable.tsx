@@ -605,9 +605,9 @@ const Editable = ({
         const state = getState()
         const { longPress } = state
         if (longPress === LongPressState.Inactive) {
-          // After cursorUp clears the app cursor on iOS Safari, tapping the thought should only restore em's
-          // cursor. Safari may still focus the contenteditable, so keep native edit mode closed in that case.
-          const shouldPreserveCursorOnly = !state.isKeyboardOpen && state.cursor === null
+          // On iOS Safari, a tap can focus contenteditable after cursorBack/parent selection even though
+          // the keyboard is closed. Preserve cursor-only mode unless the focused thought is already the cursor.
+          const shouldPreserveCursorOnly = !state.isKeyboardOpen && !equalPath(state.cursor, path)
 
           if (isTouch && isSafari() && shouldPreserveCursorOnly) {
             selection.clear()
