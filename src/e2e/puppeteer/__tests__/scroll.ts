@@ -4,7 +4,6 @@ import getEditingText from '../helpers/getEditingText'
 import paste from '../helpers/paste'
 import refresh from '../helpers/refresh'
 import waitForEditable from '../helpers/waitForEditable'
-import waitForThoughtExistInDb from '../helpers/waitForThoughtExistInDb'
 import waitUntil from '../helpers/waitUntil'
 import { page } from '../session'
 import { usePersistentTreecrdtStorage } from '../setup'
@@ -47,8 +46,6 @@ describe('scrollCursorIntoView', () => {
     await paste(importText)
 
     await clickThought('t')
-
-    await waitForThoughtExistInDb('t')
 
     await refresh()
 
