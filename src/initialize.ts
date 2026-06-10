@@ -59,6 +59,11 @@ const initializeCursor = async () => {
 /** Initialize local db and window events. */
 const initializeInternal = async () => {
   initOfflineStatusStore(/* websocket */)
+  const eventHandlers = initEvents(store)
+
+  if (testFlags.thoughtspaceInitBlocker) {
+    await testFlags.thoughtspaceInitBlocker
+  }
 
   const { clientId } = await thoughtspaceRuntime.init()
 
@@ -88,7 +93,7 @@ const initializeInternal = async () => {
 
   return {
     thoughtsLocalPromise,
-    ...initEvents(store),
+    ...eventHandlers,
   }
 }
 
