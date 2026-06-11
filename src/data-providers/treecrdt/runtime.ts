@@ -1,3 +1,4 @@
+import testFlags from '../../e2e/testFlags'
 import { initPermissionsStore } from '../permissionsStore'
 import { clientIdReady } from '../thoughtspaceSession'
 import { persistTreecrdtBatches } from './persistBatches'
@@ -19,6 +20,10 @@ const clientIdToReplicaId = (clientId: string): Uint8Array =>
 /** TreeCRDT lifecycle implementation for the app thoughtspace runtime. */
 export const treecrdtRuntime = {
   init: async (): Promise<{ clientId: string }> => {
+    if (testFlags.thoughtspaceInitBlocker) {
+      await testFlags.thoughtspaceInitBlocker
+    }
+
     const clientId = await clientIdReady
     await initPermissionsStore()
     await initTreecrdt()

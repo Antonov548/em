@@ -61,10 +61,6 @@ const initializeInternal = async () => {
   initOfflineStatusStore(/* websocket */)
   const eventHandlers = initEvents(store)
 
-  if (testFlags.thoughtspaceInitBlocker) {
-    await testFlags.thoughtspaceInitBlocker
-  }
-
   const { clientId } = await thoughtspaceRuntime.init()
 
   // load local state unless loading a public context or source url
