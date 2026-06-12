@@ -2,6 +2,7 @@ import type { Operation } from '@treecrdt/interface'
 import type { DataProvider } from '../DataProvider'
 import { pushTreecrdtLocalOpsToRemote } from './sync'
 import treecrdtDb from './thoughtspace'
+import { hasTreecrdtClient } from './treecrdt'
 import { withTreecrdtWriteBarrier } from './writeBarrier'
 
 export type PersistTreecrdtBatch = Parameters<DataProvider['updateThoughts']>[0] & {
@@ -11,6 +12,8 @@ export type PersistTreecrdtBatch = Parameters<DataProvider['updateThoughts']>[0]
 /** Persists push queue batches through TreeCRDT and forwards local ops to remote sync. */
 export const persistTreecrdtBatches = (batches: readonly PersistTreecrdtBatch[]): Promise<void> =>
   withTreecrdtWriteBarrier(async () => {
+    if (!hasTreecrdtClient()) return
+
     for (const batch of batches) {
       const { local: isLocal, ...updates } = batch
       const maybeOps = await treecrdtDb.updateThoughts(updates)

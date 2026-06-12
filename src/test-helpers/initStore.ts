@@ -1,4 +1,6 @@
 import { clearActionCreator as clear } from '../actions/clear'
+import { thoughtspaceRuntime } from '../data-providers/thoughtspace'
+import { resetTestTreecrdtInitSession } from '../data-providers/treecrdt/treecrdt'
 import store from '../stores/app'
 import { resetTestThoughtspace } from './treecrdt/testThoughtspace'
 
@@ -17,14 +19,16 @@ interface Params {
 /**
  * Initializes the store. Defaults to clearing the store and skipping the tutorial.
  */
-const initStore = ({ persist, allowTutorial }: Params = {}) => {
+const initStore = async ({ persist, allowTutorial }: Params = {}) => {
   // Use fake timers so throttled/debounced side effects (e.g., url/history updates, storage writes)
   // don't execute after the test completes and the environment is torn down.
   // This makes tests deterministic and prevents post-teardown access to window/localStorage.
   vi.useFakeTimers()
 
   if (!persist) {
+    await thoughtspaceRuntime.waitForIdle()
     resetTestThoughtspace()
+    resetTestTreecrdtInitSession()
     store.dispatch(clear())
   }
 

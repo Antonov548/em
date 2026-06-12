@@ -5,7 +5,7 @@ import { TestBackend } from 'react-dnd-test-backend'
 import Await from '../@types/Await'
 import { clearActionCreator as clear } from '../actions/clear'
 import App from '../components/App'
-import db from '../data-providers/thoughtspace'
+import db, { thoughtspaceRuntime } from '../data-providers/thoughtspace'
 import { initialize } from '../initialize'
 import store from '../stores/app'
 import storage from '../util/storage'
@@ -49,6 +49,9 @@ const createTestApp = async ({ tutorial }: { tutorial?: boolean } = {}) => {
 /** Clear store, localStorage, local db, and window event handlers. */
 export const cleanupTestApp = async () => {
   await act(async () => {
+    // Drain pushQueue persistence before tearing down TreeCRDT.
+    await thoughtspaceRuntime.waitForIdle()
+
     // clear localStorage before dispatching clear action, since initialState reads from localStorage
     storage.clear()
 
@@ -62,6 +65,7 @@ export const cleanupTestApp = async () => {
     // run out timers before provider clear, otherwise pending persistence calls may resolve after thoughts have been deleted.
     await vi.runAllTimersAsync()
 
+    await thoughtspaceRuntime.waitForIdle()
     await db.clear()
     await vi.runAllTimersAsync()
 
@@ -79,7 +83,10 @@ export const refreshTestApp = async () => {
     await initialize()
   })
 
-  await act(vi.runOnlyPendingTimersAsync)
+  await act(async () => {
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runAllTimersAsync()
+  })
 }
 
 /** Clear existing event listeners(e.g. keyboard, gestures), but without clearing the app. */

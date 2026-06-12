@@ -1,30 +1,25 @@
+import path from 'node:path'
 import { fileURLToPath } from 'url'
 import type { Plugin } from 'vite'
 import Terminal from 'vite-plugin-terminal'
 import { defineConfig } from 'vitest/config'
 
+const appRoot = path.dirname(fileURLToPath(import.meta.url))
 const testThoughtspacePath = fileURLToPath(new URL('./src/test-helpers/treecrdt/testThoughtspace.ts', import.meta.url))
-
-/** Redirects unit tests to the in-memory provider without changing runtime or Puppeteer imports. */
-const treecrdtTestThoughtspacePlugin = (): Plugin => ({
-  name: 'treecrdt-test-thoughtspace',
-  enforce: 'pre' as const,
-  async resolveId(source: string, importer?: string) {
-    if (!importer || !source.endsWith('thoughtspace')) return null
-
-    const resolved = await this.resolve(source, importer, { skipSelf: true })
-    return resolved?.id.split('?')[0].endsWith('/src/data-providers/treecrdt/thoughtspace.ts')
-      ? testThoughtspacePath
-      : null
-  },
-})
+const localTreecrdtRoot = path.resolve(process.env.TREECRDT_ROOT || path.join(appRoot, '../treecrdt'))
 
 export default defineConfig({
   test: {
     projects: [
       {
         extends: './vite.config.ts',
-        plugins: [treecrdtTestThoughtspacePlugin()],
+        plugins: [],
+        // Local TreeCRDT is symlinked outside em/; each project extends vite.config.ts, not root vitest settings.
+        server: {
+          fs: {
+            allow: [appRoot, localTreecrdtRoot],
+          },
+        },
         test: {
           name: 'unit',
           globals: true,
@@ -39,6 +34,11 @@ export default defineConfig({
       },
       {
         extends: './vite.config.ts',
+        server: {
+          fs: {
+            allow: [appRoot, localTreecrdtRoot],
+          },
+        },
         test: {
           name: 'puppeteer-e2e',
           globals: true,

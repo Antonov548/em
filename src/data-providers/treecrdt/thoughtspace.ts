@@ -230,7 +230,9 @@ const updateThoughts = async ({
       const parentChanged = existing.parentId !== thought.parentId
       const orderChanged = thoughtId in (movePlacements || {})
       if (parentChanged || orderChanged) {
-        const placement = await getTreecrdtPlacement(thoughtId, thought, movePlacements, { requireExplicit: true })
+        const placement = await getTreecrdtPlacement(thoughtId, thought, movePlacements, {
+          requireExplicit: movePlacements != null && Object.keys(movePlacements).length > 0,
+        })
         ops.push(
           await client.local.move(activeReplicaId, thoughtId, parentId, placement, createTreecrdtLocalWriteOptions()),
         )

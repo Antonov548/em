@@ -4,18 +4,28 @@ import { tsid } from '../thoughtspaceSession'
 
 let client: TreecrdtClient | null = null
 
+/** Bumped at the start of each Vitest case so in-memory TreeCRDT can be reused within a test but not across tests. */
+let testInitSession = 0
+let testClientSession: number | null = null
+
+/** Resets the Vitest TreeCRDT session so the next initTreecrdt() opens a fresh in-memory database. */
+export const resetTestTreecrdtInitSession = (): void => {
+  if (import.meta.env.MODE !== 'test') return
+  testInitSession++
+  client = null
+  testClientSession = null
+}
+
 const beforeCloseHandlers = new Set<() => Promise<void>>()
 
 /** Creates the minimal test client needed by initialize without loading wa-sqlite assets in Vitest. */
-const createTestTreecrdtClient = (): TreecrdtClient =>
-  ({
-    mode: 'direct',
-    runtime: 'direct',
-    storage: 'memory',
-    onMaterialized: () => () => undefined,
-    close: async () => undefined,
-    drop: async () => undefined,
-  }) as unknown as TreecrdtClient
+const createTestTreecrdtClient = async (): Promise<TreecrdtClient> => {
+  return createTreecrdtClient({
+    storage: { type: 'memory' },
+    runtime: { type: 'direct' },
+    docId: tsid,
+  })
+}
 
 /** Runs before `client.close()` / `client.drop()` (e.g. tear down WebSocket sync). Returns an unregister function. */
 export const registerBeforeTreecrdtClose = (handler: () => Promise<void>): (() => void) => {
@@ -46,7 +56,11 @@ const getRuntime = (): NonNullable<ClientOptions['runtime']> => {
 /** Initializes the TreeCRDT client. */
 export const initTreecrdt = async (): Promise<TreecrdtClient> => {
   if (import.meta.env.MODE === 'test') {
-    client = createTestTreecrdtClient()
+    if (client && testClientSession === testInitSession) {
+      return client
+    }
+    client = await createTestTreecrdtClient()
+    testClientSession = testInitSession
     return client
   }
 
@@ -67,6 +81,9 @@ export const initTreecrdt = async (): Promise<TreecrdtClient> => {
   })
   return client
 }
+
+/** True when a TreeCRDT client is available for persistence. */
+export const hasTreecrdtClient = (): boolean => client != null
 
 /** Returns the initialized TreeCRDT client. */
 export const getTreecrdtClient = (): TreecrdtClient => {
@@ -89,6 +106,7 @@ export const dropTreecrdt = async (): Promise<void> => {
     await runBeforeTreecrdtClose()
     await client.drop()
     client = null
+    testClientSession = null
   }
 }
 
