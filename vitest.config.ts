@@ -1,11 +1,9 @@
 import path from 'node:path'
 import { fileURLToPath } from 'url'
-import type { Plugin } from 'vite'
 import Terminal from 'vite-plugin-terminal'
 import { defineConfig } from 'vitest/config'
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url))
-const testThoughtspacePath = fileURLToPath(new URL('./src/test-helpers/treecrdt/testThoughtspace.ts', import.meta.url))
 const localTreecrdtRoot = path.resolve(process.env.TREECRDT_ROOT || path.join(appRoot, '../treecrdt'))
 
 export default defineConfig({
