@@ -165,7 +165,16 @@ const pullQueueMiddleware: ThunkMiddleware<State> = ({ getState, dispatch }) => 
     // pull favorites in the background on the first pull
     // note that syncStatusStore.isPulling does not include favorites because we want them to load in the background and not block push
     if (!pulled) {
-      dispatch(pullFavorites())
+      void (async () => {
+        syncStatusStore.update({ isBackgroundPulling: true })
+        try {
+          await dispatch(pullFavorites())
+        } catch (err) {
+          console.error('pullFavorites failed', err)
+        } finally {
+          syncStatusStore.update({ isBackgroundPulling: false })
+        }
+      })()
       pulled = true
     }
   }
