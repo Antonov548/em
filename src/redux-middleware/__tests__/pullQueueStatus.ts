@@ -9,6 +9,7 @@ import Timestamp from '../../@types/Timestamp'
 import { HOME_TOKEN, ROOT_PARENT_ID } from '../../constants'
 import pullQueueMiddleware from '../../redux-middleware/pullQueue'
 import syncStatusStore from '../../stores/syncStatus'
+import waitForThoughtspaceIdle from '../../test-helpers/waitForThoughtspaceIdle'
 
 const pullMock = vi.hoisted(() => {
   const resolvers: (() => void)[] = []
@@ -22,17 +23,32 @@ const pullMock = vi.hoisted(() => {
   return { pullActionCreator, resolvers }
 })
 
+const favoritePullMock = vi.hoisted(() => {
+  const resolvers: (() => void)[] = []
+  const pullAncestorsActionCreator = vi.fn(
+    () => async (): Promise<void> =>
+      new Promise<void>(resolve => {
+        resolvers.push(resolve)
+      }),
+  )
+
+  return { pullAncestorsActionCreator, resolvers }
+})
+
 vi.mock('../../actions/pull', () => ({
   pullActionCreator: pullMock.pullActionCreator,
 }))
 
 vi.mock('../../actions/pullAncestors', () => ({
-  pullAncestorsActionCreator: vi.fn(() => async () => []),
+  pullAncestorsActionCreator: favoritePullMock.pullAncestorsActionCreator,
 }))
 
 vi.mock('../../data-providers/thoughtspace', () => ({
   default: {
     getLexemeById: vi.fn(async () => undefined),
+  },
+  thoughtspaceRuntime: {
+    waitForIdle: vi.fn(async () => undefined),
   },
 }))
 
@@ -95,12 +111,53 @@ beforeEach(() => {
   vi.useFakeTimers()
   pullMock.pullActionCreator.mockClear()
   pullMock.resolvers.length = 0
-  syncStatusStore.update({ isPulling: false })
+  favoritePullMock.pullAncestorsActionCreator.mockClear()
+  favoritePullMock.resolvers.length = 0
+  syncStatusStore.update({ isPulling: false, isBackgroundPulling: false })
 })
 
 afterEach(() => {
+  favoritePullMock.resolvers.splice(0).forEach(resolve => resolve())
   vi.useRealTimers()
-  syncStatusStore.update({ isPulling: false })
+  syncStatusStore.update({ isPulling: false, isBackgroundPulling: false })
+})
+
+it('waits for background favorites before reporting thoughtspace idle', async () => {
+  const state = stateWithCursor('a' as ThoughtId)
+
+  /** Reads the test state used by the middleware. */
+  const getState = () => state
+
+  const dispatch = ((actionOrActions: UnknownAction | Thunk | (UnknownAction | Thunk | null)[] | null) => {
+    if (Array.isArray(actionOrActions)) {
+      return actionOrActions.map(action => (action ? dispatch(action) : undefined))
+    }
+
+    return typeof actionOrActions === 'function' ? actionOrActions(dispatch, getState) : undefined
+  }) as Dispatch & PullQueueMiddlewareApi['dispatch']
+
+  const dispatchThroughPullQueue = pullQueueMiddleware({ getState, dispatch })(vi.fn())
+
+  dispatchThroughPullQueue({ type: 'first action' })
+  await flushPullQueueDebounce()
+  pullMock.resolvers[0]()
+  await settlePull()
+
+  expect(syncStatusStore.getState().isPulling).toBe(false)
+  expect(syncStatusStore.getState().isBackgroundPulling).toBe(true)
+
+  let idleResolved = false
+  const idlePromise = waitForThoughtspaceIdle().then(() => {
+    idleResolved = true
+  })
+  await settlePull()
+
+  expect(idleResolved).toBe(false)
+
+  favoritePullMock.resolvers[0]()
+  await idlePromise
+
+  expect(idleResolved).toBe(true)
 })
 
 it('keeps isPulling true until overlapping pulls have all finished', async () => {
