@@ -13,14 +13,16 @@ import waitForThoughtspaceIdle from '../../test-helpers/waitForThoughtspaceIdle'
 
 const pullMock = vi.hoisted(() => {
   const resolvers: (() => void)[] = []
+  const rejectors: ((err: unknown) => void)[] = []
   const pullActionCreator = vi.fn(
     () => async (): Promise<Thought[]> =>
-      new Promise<Thought[]>(resolve => {
+      new Promise<Thought[]>((resolve, reject) => {
         resolvers.push(() => resolve([]))
+        rejectors.push(reject)
       }),
   )
 
-  return { pullActionCreator, resolvers }
+  return { pullActionCreator, rejectors, resolvers }
 })
 
 const favoritePullMock = vi.hoisted(() => {
@@ -110,6 +112,7 @@ const settlePull = async () => {
 beforeEach(() => {
   vi.useFakeTimers()
   pullMock.pullActionCreator.mockClear()
+  pullMock.rejectors.length = 0
   pullMock.resolvers.length = 0
   favoritePullMock.pullAncestorsActionCreator.mockClear()
   favoritePullMock.resolvers.length = 0
@@ -120,6 +123,39 @@ afterEach(() => {
   favoritePullMock.resolvers.splice(0).forEach(resolve => resolve())
   vi.useRealTimers()
   syncStatusStore.update({ isPulling: false, isBackgroundPulling: false })
+})
+
+it('clears isPulling after a foreground pull throws', async () => {
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  try {
+    const state = stateWithCursor('a' as ThoughtId)
+
+    /** Reads the test state used by the middleware. */
+    const getState = () => state
+
+    const dispatch = ((actionOrActions: UnknownAction | Thunk | (UnknownAction | Thunk | null)[] | null) => {
+      if (Array.isArray(actionOrActions)) {
+        return actionOrActions.map(action => (action ? dispatch(action) : undefined))
+      }
+
+      return typeof actionOrActions === 'function' ? actionOrActions(dispatch, getState) : undefined
+    }) as Dispatch & PullQueueMiddlewareApi['dispatch']
+
+    const dispatchThroughPullQueue = pullQueueMiddleware({ getState, dispatch })(vi.fn())
+
+    dispatchThroughPullQueue({ type: 'first action' })
+    await flushPullQueueDebounce()
+
+    expect(syncStatusStore.getState().isPulling).toBe(true)
+
+    pullMock.rejectors[0](new Error('pull failed'))
+    await settlePull()
+
+    expect(syncStatusStore.getState().isPulling).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith('pullQueue failed', expect.any(Error))
+  } finally {
+    consoleError.mockRestore()
+  }
 })
 
 it('waits for background favorites before reporting thoughtspace idle', async () => {
