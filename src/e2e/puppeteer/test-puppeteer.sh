@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Runs the puppeteer tests in a browserless docker container. If running in a GitHub Action, it assumes that
-# the container is already running and available at localhost:7566.
+# Runs the Puppeteer tests in a Browserless Docker container by default. Set PUPPETEER_LOCAL_BROWSER=1 to use
+# Puppeteer's bundled Chromium instead. In GitHub Actions, the Browserless container is provided by the workflow.
 #
 # Usage:
 #
@@ -43,7 +43,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Check if we're running outside of a GitHub Action
-if [ -z "$GITHUB_ACTIONS" ]; then
+if [ -z "$GITHUB_ACTIONS" ] && [ "$PUPPETEER_LOCAL_BROWSER" != "1" ]; then
     # We're not in a GitHub Action, so start the browserless docker container
     echo "Starting browserless docker container..."
     CONTAINER_ID=$(docker run -d --rm -p 7566:3000 --add-host=host.docker.internal:host-gateway -e "CONNECTION_TIMEOUT=-1" browserless/chrome)
@@ -53,7 +53,9 @@ if [ -z "$GITHUB_ACTIONS" ]; then
     while ! nc -z localhost 7566; do
         sleep 0.1
     done
+fi
 
+if [ -z "$GITHUB_ACTIONS" ]; then
     echo "Starting separate dev server..."
     PUPPETEER=1 yarn vite --host --port 2552 >/dev/null 2>&1 &
     DEV_SERVER_PID=$!

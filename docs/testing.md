@@ -127,6 +127,12 @@ Related tests: [components](../src/components/__tests__)
 yarn test:puppeteer
 ```
 
+To run the cursor-restoration coverage locally with SharedWorker + OPFS and Puppeteer's bundled Chromium:
+
+```sh
+PUPPETEER_LOCAL_BROWSER=1 TREECRDT_TEST_RUNTIME=shared-worker yarn test:puppeteer cursor -t 'persistent cursor restoration'
+```
+
 Puppeteer is a Node.js library that provides a high-level API for controlling a Chromium-based browser (Chrome or Chromium) via the DevTools Protocol. It is maintained by the Chrome DevTools team and is primarily used for browser automation. We run ours in a Docker container to ensure consistent results on different dev machines and the CI.
 
 Puppeteer allows you to launch a real browser instance (headless or visible), navigate to pages, interact with the DOM, execute JavaScript in the page context, capture screenshots or PDFs, and observe network or performance behavior programmatically.
@@ -260,7 +266,7 @@ Three GitHub Actions workflows run on every push to `main` and every pull reques
 | Workflow | File | What it runs | Notes |
 |---|---|---|---|
 | **Test** | [`.github/workflows/test.yml`](../.github/workflows/test.yml) | `yarn test` (Vitest unit + jsdom) | The fast tier. Should always pass. |
-| **Puppeteer** | [`.github/workflows/puppeteer.yml`](../.github/workflows/puppeteer.yml) | `yarn test:puppeteer` against a `browserless/chrome:latest` service container on port 7566. Image-snapshot diffs are uploaded as a `snapshot-diff` artifact when tests fail. | The slow tier. Triggered only when changed-files > 0. |
+| **Puppeteer** | [`.github/workflows/puppeteer.yml`](../.github/workflows/puppeteer.yml) | `yarn test:puppeteer` against a `browserless/chrome:latest` service container on port 7566. The existing cursor-restoration tests are also rerun in SharedWorker + OPFS against Puppeteer's current bundled Chromium. Image-snapshot diffs are uploaded as a `snapshot-diff` artifact when tests fail. | The slow tier. Triggered only when changed-files > 0. |
 | **BrowserStack** | [`.github/workflows/ios.yml`](../.github/workflows/ios.yml) | `yarn test:ios:browserstack` against real iOS devices via BrowserStack. | Trigger is `pull_request_target` (so credentials can be exposed to the workflow), guarded by `changed_files > 0`. |
 
 Other workflows live in [`.github/workflows/`](../.github/workflows) — `lint.yml`, `tdd.yml`, `docs.yml`, `update-browserslist.yml`, `copilot-setup-steps.yml` — but the three above are the test pipelines proper.

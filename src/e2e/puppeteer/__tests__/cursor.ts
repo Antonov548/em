@@ -10,47 +10,52 @@ import waitUntil from '../helpers/waitUntil'
 import { usePersistentTreecrdtStorage } from '../setup'
 
 vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 })
-usePersistentTreecrdtStorage()
 
-it('set the cursor to a thought in the home context on load', async () => {
-  const importText = `
-  - a
-  - b`
-  await paste(importText)
-  await waitForEditable('b')
-  await clickThought('b')
-
-  await refresh()
-
-  await waitForEditable('b')
-
-  const thoughtValue = await getEditingText()
-  expect(thoughtValue).toBe('b')
+usePersistentTreecrdtStorage({
+  runtime: process.env.TREECRDT_TEST_RUNTIME === 'shared-worker' ? 'shared-worker' : 'direct',
 })
 
-it('set the cursor on a subthought on load', async () => {
-  const importText = `
+describe('persistent cursor restoration', () => {
+  it('set the cursor to a thought in the home context on load', async () => {
+    const importText = `
+  - a
+  - b`
+    await paste(importText)
+    await waitForEditable('b')
+    await clickThought('b')
+
+    await refresh()
+
+    await waitForEditable('b')
+
+    const thoughtValue = await getEditingText()
+    expect(thoughtValue).toBe('b')
+  })
+
+  it('set the cursor on a subthought on load', async () => {
+    const importText = `
   - a
     - x
   - b
     - y
     - z`
-  await paste(importText)
-  await waitForEditable('b')
-  await clickThought('b')
-  await waitForEditable('z')
-  await clickThought('z')
+    await paste(importText)
+    await waitForEditable('b')
+    await clickThought('b')
+    await waitForEditable('z')
+    await clickThought('z')
 
-  // wait for browser selection to update
-  // getting intermittent test failures at 200ms so try longer sleep
-  await sleep(400)
+    // wait for browser selection to update
+    // getting intermittent test failures at 200ms so try longer sleep
+    await sleep(400)
 
-  await refresh()
+    await refresh()
 
-  await waitForEditable('z')
+    await waitForEditable('z')
 
-  const thoughtValue = await getEditingText()
-  expect(thoughtValue).toBe('z')
+    const thoughtValue = await getEditingText()
+    expect(thoughtValue).toBe('z')
+  })
 })
 
 it('set the cursor on the cursor uncle', async () => {

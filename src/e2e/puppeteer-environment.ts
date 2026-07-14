@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer-core'
+import puppeteer from 'puppeteer'
 import { type Environment, builtinEnvironments, populateGlobal } from 'vitest/environments'
 
 /** Puppeteer Environment for vitest. */
@@ -19,15 +19,18 @@ const PuppeteerEnvironment: Environment = {
       '--no-zygote',
       '--ignore-certificate-errors',
     ]
-
-    const browser = await puppeteer
-      .connect({ browserWSEndpoint: `ws://localhost:7566?${args.join('&')}` })
+    const useLocalBrowser = process.env.PUPPETEER_LOCAL_BROWSER === '1'
+    const browser = await (
+      useLocalBrowser
+        ? puppeteer.launch({ args, headless: true })
+        : puppeteer.connect({ browserWSEndpoint: `ws://localhost:7566?${args.join('&')}` })
+    )
       // catch and log a launch error, otherwise it will not appear in the CI logs
       .catch((err: Error) => {
         // using `console.log` here to avoid errors or logs being swallowed by vitest
         // all of `console.error`, `console.warn` and `console.info` don't show up in the terminal
         // eslint-disable-next-line no-console
-        console.log('Could not connect to browserless.')
+        console.log(useLocalBrowser ? 'Could not launch Chromium.' : 'Could not connect to browserless.')
         throw err
       })
 
@@ -41,7 +44,8 @@ const PuppeteerEnvironment: Environment = {
 
     return {
       async teardown() {
-        await browser.disconnect()
+        if (useLocalBrowser) await browser.close()
+        else await browser.disconnect()
         keys.forEach(key => delete global[key])
         originals.forEach((v, k) => (global[k] = v))
       },

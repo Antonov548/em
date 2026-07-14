@@ -115,7 +115,7 @@ export default defineConfig({
     ...(process.env.PUPPETEER
       ? {
           hmr: {
-            host: 'host.docker.internal',
+            host: process.env.PUPPETEER_LOCAL_BROWSER === '1' ? 'localhost' : 'host.docker.internal',
             // wss uses a secure websocket(wss://) connection. This was necessary to resolve mixed content security error which was observed when using ws protocol only.
             protocol: 'wss',
           },
