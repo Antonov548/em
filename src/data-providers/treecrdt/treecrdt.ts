@@ -41,7 +41,7 @@ const getRuntime = (): NonNullable<ClientOptions['runtime']> => {
     return { type: runtimeOverride }
   }
 
-  return { type: 'dedicated-worker' };
+  return { type: 'dedicated-worker' }
 }
 
 /** Initializes the TreeCRDT client. */
