@@ -4,6 +4,10 @@ import { tsid } from '../thoughtspaceSession'
 let pendingTreecrdtWrite = Promise.resolve()
 let pendingTreecrdtWriteError: unknown = null
 let pendingTreecrdtWriteVersion = 0
+let pendingTreecrdtPersistenceIntents = 0
+let treecrdtPersistenceIntentEpoch = 0
+let resolveTreecrdtPersistenceIntentsIdle: (() => void) | null = null
+let treecrdtPersistenceIntentsIdle = Promise.resolve()
 let localWriteCounter = 0
 
 const localWriteSourceId =
@@ -56,6 +60,45 @@ export async function waitForTreecrdtWriteBarrier(): Promise<void> {
   }
 }
 
+/**
+ * Registers an app persistence call before its first await. Materialization uses this synchronous intent to avoid
+ * reading SQLite while newer optimistic Redux state is queued behind its Web Lock.
+ */
+export function beginTreecrdtPersistenceIntent(): () => void {
+  treecrdtPersistenceIntentEpoch += 1
+  if (pendingTreecrdtPersistenceIntents === 0) {
+    treecrdtPersistenceIntentsIdle = new Promise(resolve => {
+      resolveTreecrdtPersistenceIntentsIdle = resolve
+    })
+  }
+  pendingTreecrdtPersistenceIntents += 1
+
+  let finished = false
+  return () => {
+    if (finished) return
+    finished = true
+    pendingTreecrdtPersistenceIntents -= 1
+    if (pendingTreecrdtPersistenceIntents === 0) {
+      resolveTreecrdtPersistenceIntentsIdle?.()
+      resolveTreecrdtPersistenceIntentsIdle = null
+    }
+  }
+}
+
+/** Returns the current local persistence intent count and monotonic epoch. */
+export const getTreecrdtPersistenceIntentState = (): { pending: number; epoch: number } => ({
+  pending: pendingTreecrdtPersistenceIntents,
+  epoch: treecrdtPersistenceIntentEpoch,
+})
+
+/** Waits until every app persistence intent registered so far has finished. */
+export async function waitForTreecrdtPersistenceIntents(): Promise<void> {
+  while (pendingTreecrdtPersistenceIntents > 0) {
+    const pending = treecrdtPersistenceIntentsIdle
+    await pending
+  }
+}
+
 /** Creates local write metadata used to identify materialization events already applied optimistically by the app. */
 export function createTreecrdtLocalWriteOptions(): LocalWriteOptions {
   localWriteCounter += 1
@@ -74,9 +117,12 @@ export const isTreecrdtLocalMaterialization = (event: MaterializationEvent): boo
 }
 
 export default {
+  beginTreecrdtPersistenceIntent,
   createTreecrdtLocalWriteOptions,
+  getTreecrdtPersistenceIntentState,
   getTreecrdtWriteBarrierVersion,
   isTreecrdtLocalMaterialization,
+  waitForTreecrdtPersistenceIntents,
   waitForTreecrdtWriteBarrier,
   withTreecrdtWriteBarrier,
 }

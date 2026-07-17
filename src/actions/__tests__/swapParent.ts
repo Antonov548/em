@@ -431,7 +431,7 @@ describe('reconcile', () => {
       - BBB`)
   })
 
-  it('allows an equal-timestamp materialization update when Redux is unchanged since its snapshot', () => {
+  it('allows an authoritative materialization update when Redux is unchanged since its snapshot', () => {
     const state = importText({ text: '- AAA\n- BBB' })(initialState())
     const home = getThoughtById(state, HOME_TOKEN)!
     const reversedChildrenMap = Object.fromEntries(Object.entries(home.childrenMap).reverse())
@@ -441,10 +441,30 @@ describe('reconcile', () => {
       lexemeIndexUpdates: {},
       local: false,
       remote: false,
-      equalTimestampReconcileSnapshot: { [HOME_TOKEN]: home },
+      authoritativeReconcileSnapshot: { [HOME_TOKEN]: home },
     })(state)
 
     expect(Object.values(getThoughtById(stateNew, HOME_TOKEN)!.childrenMap)).toEqual(Object.values(reversedChildrenMap))
+  })
+
+  it('allows older authoritative TreeCRDT structure when Redux is unchanged since its snapshot', () => {
+    const state = importText({ text: '- AAA\n- BBB' })(initialState())
+    const home = getThoughtById(state, HOME_TOKEN)!
+    const materialized = {
+      ...home,
+      childrenMap: Object.fromEntries(Object.entries(home.childrenMap).reverse()),
+      lastUpdated: (home.lastUpdated - 1) as Timestamp,
+    }
+
+    const stateNew = updateThoughts({
+      thoughtIndexUpdates: { [HOME_TOKEN]: materialized },
+      lexemeIndexUpdates: {},
+      local: false,
+      remote: false,
+      authoritativeReconcileSnapshot: { [HOME_TOKEN]: home },
+    })(state)
+
+    expect(getThoughtById(stateNew, HOME_TOKEN)).toMatchObject(materialized)
   })
 
   it('rejects an equal-timestamp materialization update after an optimistic Redux change', () => {
@@ -472,7 +492,7 @@ describe('reconcile', () => {
       lexemeIndexUpdates: {},
       local: false,
       remote: false,
-      equalTimestampReconcileSnapshot: { [HOME_TOKEN]: homeAtRead },
+      authoritativeReconcileSnapshot: { [HOME_TOKEN]: homeAtRead },
     })(stateAfterOptimisticChange)
 
     expect(getThoughtById(stateNew, HOME_TOKEN)).toBe(homeAfterOptimisticChange)

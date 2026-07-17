@@ -1,6 +1,9 @@
 import {
+  beginTreecrdtPersistenceIntent,
   createTreecrdtLocalWriteOptions,
+  getTreecrdtPersistenceIntentState,
   isTreecrdtLocalMaterialization,
+  waitForTreecrdtPersistenceIntents,
   waitForTreecrdtWriteBarrier,
   withTreecrdtWriteBarrier,
 } from '../writeBarrier'
@@ -60,6 +63,32 @@ it('holds the document Web Lock while running queued work', async () => {
     if (originalLocks) Object.defineProperty(navigator, 'locks', originalLocks)
     else Reflect.deleteProperty(navigator, 'locks')
   }
+})
+
+it('tracks persistence intent synchronously until every caller finishes', async () => {
+  const epochBefore = getTreecrdtPersistenceIntentState().epoch
+  const finishFirst = beginTreecrdtPersistenceIntent()
+  const finishSecond = beginTreecrdtPersistenceIntent()
+  const statePending = getTreecrdtPersistenceIntentState()
+
+  expect(statePending).toEqual({ pending: 2, epoch: epochBefore + 2 })
+
+  let idle = false
+  const wait = waitForTreecrdtPersistenceIntents().then(() => {
+    idle = true
+  })
+  await Promise.resolve()
+  expect(idle).toBe(false)
+
+  finishFirst()
+  await Promise.resolve()
+  expect(getTreecrdtPersistenceIntentState().pending).toBe(1)
+  expect(idle).toBe(false)
+
+  finishSecond()
+  await wait
+  expect(getTreecrdtPersistenceIntentState().pending).toBe(0)
+  expect(idle).toBe(true)
 })
 
 it('identifies only this tab local TreeCRDT materialization events', () => {

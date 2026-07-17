@@ -35,11 +35,8 @@ export type UpdateThoughtsOptions = Omit<PushBatch, 'lexemeIndexUpdatesOld'> & {
   preventExpandThoughts?: boolean
   /** Allow non-pending thoughts to become pending. This is mainly used by freeThoughts. */
   overwritePending?: boolean
-  /**
-   * Snapshot used by an authoritative reconcile read. Equal-timestamp updates may overwrite only thoughts that have
-   * not changed in Redux since this snapshot was taken.
-   */
-  equalTimestampReconcileSnapshot?: Index<Thought>
+  /** Snapshot used by an authoritative provider read that may overwrite only thoughts unchanged since the read began. */
+  authoritativeReconcileSnapshot?: Index<Thought>
   /**
    * If true, check if the cursor is valid, and if not, move it to the closest valid ancestor.
    * This should only be used when the updates are coming from another device. For local updates, updateThoughts is typically called within a higher level reducer (e.g. moveThought) which handles all cursor updates. There would be false positives during local updates since the cursor is updated after updateThoughts.
@@ -183,7 +180,7 @@ const updateThoughts = (
     idbSynced,
     isLoading,
     overwritePending,
-    equalTimestampReconcileSnapshot,
+    authoritativeReconcileSnapshot,
     repairCursor,
   }: UpdateThoughtsOptions,
 ) => {
@@ -208,9 +205,9 @@ const updateThoughts = (
   // final state's, so a strict `<` would let it through and clobber the correct result (planting a child in
   // two contexts → cycle → hang, https://github.com/cybersemics/em/issues/3948). Because the final state is
   // emitted last, its lastUpdated is always >= any intermediate, so `<=` reliably discards the stale echo
-  // while genuinely newer cross-device edits (strictly greater) still win. A materialization read may opt an
-  // equal-timestamp thought back in only when Redux still holds the exact object from its read snapshot. This lets an
-  // authoritative childrenMap refresh through without clobbering an optimistic edit made while SQLite was being read.
+  // while genuinely newer cross-device edits (strictly greater) still win. A serialized provider read may opt a
+  // thought back in regardless of timestamp only when Redux still holds the exact object from its read snapshot.
+  // TreeCRDT structural order is authoritative but independent of the payload's app-level lastUpdated timestamp.
   //
   // Skip when overwritePending is set (freeThoughts/deleteThought/generateThought intentionally overwrite)
   // and keep deletions (null) and missing/pending thoughts so pulls still load them.
@@ -219,13 +216,13 @@ const updateThoughts = (
       ? thoughtIndexUpdates
       : keyValueBy(thoughtIndexUpdates, (id, thoughtUpdate) => {
           const thoughtOld = thoughtIndexOld[id]
-          const allowEqualTimestamp = thoughtOld === equalTimestampReconcileSnapshot?.[id]
+          const allowAuthoritativeReconcile = thoughtOld === authoritativeReconcileSnapshot?.[id]
           const isStale =
             thoughtUpdate &&
             thoughtOld &&
             !thoughtOld.pending &&
-            (thoughtUpdate.lastUpdated < thoughtOld.lastUpdated ||
-              (thoughtUpdate.lastUpdated === thoughtOld.lastUpdated && !allowEqualTimestamp))
+            thoughtUpdate.lastUpdated <= thoughtOld.lastUpdated &&
+            !allowAuthoritativeReconcile
           return isStale ? null : { [id]: thoughtUpdate }
         })
 

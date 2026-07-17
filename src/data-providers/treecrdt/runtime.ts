@@ -5,9 +5,14 @@ import type { ThoughtspaceRuntimeInitOptions } from '../thoughtspace'
 import { clientIdReady } from '../thoughtspaceSession'
 import { pushTreecrdtLocalOpsToRemote } from './sync'
 import { getMaterializedThoughtsToStoreVersion, waitForMaterializedThoughtsToStore } from './sync/materializationQueue'
-import treecrdtDb, { init as initTreecrdtThoughtspace } from './thoughtspace'
+import treecrdtDb, { init as initTreecrdtThoughtspace, waitForInitReady } from './thoughtspace'
 import { initTreecrdt } from './treecrdt'
-import { getTreecrdtWriteBarrierVersion, waitForTreecrdtWriteBarrier, withTreecrdtWriteBarrier } from './writeBarrier'
+import {
+  beginTreecrdtPersistenceIntent,
+  getTreecrdtWriteBarrierVersion,
+  waitForTreecrdtWriteBarrier,
+  withTreecrdtWriteBarrier,
+} from './writeBarrier'
 
 type PersistTreecrdtBatch = Parameters<DataProvider['updateThoughts']>[0] & {
   local?: boolean
@@ -43,16 +48,26 @@ const clientIdToReplicaId = (clientId: string): Uint8Array =>
       })()
 
 /** Persists push queue batches through TreeCRDT and forwards local ops to remote sync. */
-const persistPushQueueBatches = (batches: readonly PersistTreecrdtBatch[]): Promise<void> =>
-  withTreecrdtWriteBarrier(async () => {
-    for (const batch of batches) {
-      const { local: isLocal, ...updates } = batch
-      const maybeOps = await treecrdtDb.updateThoughts(updates)
-      if (isLocal && Array.isArray(maybeOps) && maybeOps.length > 0) {
-        void pushTreecrdtLocalOpsToRemote(maybeOps as readonly Operation[])
+const persistPushQueueBatches = async (batches: readonly PersistTreecrdtBatch[]): Promise<void> => {
+  const finishPersistenceIntent = beginTreecrdtPersistenceIntent()
+  try {
+    // A command can enqueue persistence before delayed app initialization begins. Wait outside the Web Lock so init
+    // can acquire it and resolve provider readiness instead of deadlocking behind the pre-init write.
+    await waitForInitReady()
+
+    await withTreecrdtWriteBarrier(async () => {
+      for (const batch of batches) {
+        const { local: isLocal, ...updates } = batch
+        const maybeOps = await treecrdtDb.updateThoughts(updates)
+        if (isLocal && Array.isArray(maybeOps) && maybeOps.length > 0) {
+          void pushTreecrdtLocalOpsToRemote(maybeOps as readonly Operation[])
+        }
       }
-    }
-  })
+    })
+  } finally {
+    finishPersistenceIntent()
+  }
+}
 
 /** Waits until both local writes and materialization refreshes are stable. */
 const waitForStableIdle = async (): Promise<void> => {

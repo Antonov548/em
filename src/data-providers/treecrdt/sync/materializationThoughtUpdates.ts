@@ -28,7 +28,11 @@ const isLexemeContextThought = (thought: Thought | undefined): thought is Though
 const maxTimestamp = (...values: (Timestamp | number | undefined)[]): Timestamp =>
   Math.max(...values.map(value => value || 0)) as Timestamp
 
-/** Gets the latest lexeme from already staged updates, app state, or the local derived lexeme table. */
+/**
+ * Gets the latest lexeme while preserving contexts known by either Redux or the serialized derived table. Different
+ * tabs can temporarily replace the whole row from independent optimistic snapshots, so neither source is sufficient
+ * alone. Once this refresh stages an update, keep it authoritative so removals are not reintroduced.
+ */
 const getCurrentLexeme = async (
   key: string,
   updates: Index<Lexeme | null>,
@@ -36,7 +40,26 @@ const getCurrentLexeme = async (
   db: DataProvider,
 ): Promise<Lexeme | undefined> => {
   if (updates[key] === null) return undefined
-  return updates[key] || snapshot.lexemeIndex[key] || (await db.getLexemeById(key))
+  if (updates[key]) return updates[key]
+
+  const persisted = await db.getLexemeById(key)
+  const inRedux = snapshot.lexemeIndex[key]
+  if (!persisted && !inRedux) return undefined
+
+  const candidates = [persisted, inRedux].filter((lexeme): lexeme is Lexeme => !!lexeme)
+  const latest = candidates.reduce((current, lexeme) => (lexeme.lastUpdated >= current.lastUpdated ? lexeme : current))
+  const contextCandidates = [...new Set(candidates.flatMap(lexeme => lexeme.contexts))]
+  const contexts: ThoughtId[] = []
+  for (const id of contextCandidates) {
+    const thought = await db.getThoughtById(id)
+    if (isLexemeContextThought(thought) && hashThought(thought.value) === key) contexts.push(id)
+  }
+
+  return {
+    ...latest,
+    contexts,
+    created: Math.min(...candidates.map(lexeme => lexeme.created)) as Timestamp,
+  }
 }
 
 /** Adds the thought id to the locally derived lexeme for the thought value. */
@@ -115,7 +138,10 @@ export async function refreshThoughtsFromMaterializationChanges(
   const deleted = new Set<ThoughtId>()
   const touched = new Set<ThoughtId>()
   const orderParents = new Set<ThoughtId>()
+  const changedNodes = new Set<ThoughtId>()
+  const currentChangedThoughts = new Map<ThoughtId, Thought | undefined>()
   for (const ch of changes) {
+    changedNodes.add(ch.node as ThoughtId)
     switch (ch.kind) {
       case 'insert':
         deleted.delete(ch.node as ThoughtId)
@@ -153,6 +179,26 @@ export async function refreshThoughtsFromMaterializationChanges(
     }
   }
 
+  // Events from different tabs are only FIFO per sender. Resolve every changed node from the final materialized tree
+  // so a late stale delete/restore/payload event cannot roll Redux back after a newer event from another sender.
+  for (const id of changedNodes) {
+    const current = await db.getThoughtById(id)
+    currentChangedThoughts.set(id, current)
+    if (current) {
+      deleted.delete(id)
+      touched.add(id)
+      orderParents.add(current.parentId)
+    } else {
+      touched.delete(id)
+      deleted.add(id)
+    }
+  }
+
+  // TreeCRDT's internal root has a self parent in em's compatibility model and must never enter app-facing Redux.
+  touched.delete(GLOBAL_ROOT_TOKEN)
+  deleted.delete(GLOBAL_ROOT_TOKEN)
+  orderParents.delete(GLOBAL_ROOT_TOKEN)
+
   for (const id of deleted) {
     touched.delete(id)
   }
@@ -160,6 +206,32 @@ export async function refreshThoughtsFromMaterializationChanges(
   const thoughts: Thought[] = []
   const thoughtIndexUpdates: Index<Thought> = {}
   const lexemeIndexUpdates: Index<Lexeme | null> = {}
+
+  // A local optimistic delete/rename may remove the old thought from the Redux snapshot before its materialization
+  // callback runs. Reverse lookup repairs every persisted or Redux lexeme row that still references the changed id.
+  for (const id of changedNodes) {
+    const lexemesInRedux = Object.fromEntries(
+      Object.entries(snapshot.lexemeIndex).filter(([, lexeme]) => lexeme.contexts.includes(id)),
+    )
+    const lexemes = { ...lexemesInRedux, ...(await db.getLexemesByContextId?.(id)) }
+    const currentThought = currentChangedThoughts.get(id)
+    for (const key of Object.keys(lexemes)) {
+      const lexeme = await getCurrentLexeme(key, lexemeIndexUpdates, snapshot, db)
+      if (!lexeme) continue
+      const belongsToLexeme = isLexemeContextThought(currentThought) && hashThought(currentThought.value) === key
+      const contexts = [...lexeme.contexts.filter(contextId => contextId !== id), ...(belongsToLexeme ? [id] : [])]
+      const timestampThought = currentThought || snapshot.thoughtIndex[id]
+      lexemeIndexUpdates[key] =
+        contexts.length > 0
+          ? {
+              ...lexeme,
+              contexts,
+              lastUpdated: maxTimestamp(lexeme.lastUpdated, timestampThought?.lastUpdated),
+              updatedBy: timestampThought?.updatedBy || lexeme.updatedBy,
+            }
+          : null
+    }
+  }
 
   for (const id of touched) {
     const thought = await db.getThoughtById(id)
@@ -176,6 +248,7 @@ export async function refreshThoughtsFromMaterializationChanges(
   // Current em selectors still sort by numeric rank. For remote/order-only TreeCRDT changes, derive a local rank
   // projection from the authoritative TreeCRDT child order without exposing TreeCRDT's internal order keys.
   // TODO: Remove when read-side selectors consume provider-backed sibling order instead of rank projection.
+  orderParents.delete(GLOBAL_ROOT_TOKEN)
   for (const parentId of orderParents) {
     await addTreeOrderRankProjection(thoughtIndexUpdates, db, parentId)
   }
