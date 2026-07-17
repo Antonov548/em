@@ -430,4 +430,71 @@ describe('reconcile', () => {
     - CCC
       - BBB`)
   })
+
+  it('allows an authoritative materialization update when Redux is unchanged since its snapshot', () => {
+    const state = importText({ text: '- AAA\n- BBB' })(initialState())
+    const home = getThoughtById(state, HOME_TOKEN)!
+    const reversedChildrenMap = Object.fromEntries(Object.entries(home.childrenMap).reverse())
+
+    const stateNew = updateThoughts({
+      thoughtIndexUpdates: { [HOME_TOKEN]: { ...home, childrenMap: reversedChildrenMap } },
+      lexemeIndexUpdates: {},
+      local: false,
+      remote: false,
+      authoritativeReconcileSnapshot: { [HOME_TOKEN]: home },
+    })(state)
+
+    expect(Object.values(getThoughtById(stateNew, HOME_TOKEN)!.childrenMap)).toEqual(Object.values(reversedChildrenMap))
+  })
+
+  it('allows older authoritative TreeCRDT structure when Redux is unchanged since its snapshot', () => {
+    const state = importText({ text: '- AAA\n- BBB' })(initialState())
+    const home = getThoughtById(state, HOME_TOKEN)!
+    const materialized = {
+      ...home,
+      childrenMap: Object.fromEntries(Object.entries(home.childrenMap).reverse()),
+      lastUpdated: (home.lastUpdated - 1) as Timestamp,
+    }
+
+    const stateNew = updateThoughts({
+      thoughtIndexUpdates: { [HOME_TOKEN]: materialized },
+      lexemeIndexUpdates: {},
+      local: false,
+      remote: false,
+      authoritativeReconcileSnapshot: { [HOME_TOKEN]: home },
+    })(state)
+
+    expect(getThoughtById(stateNew, HOME_TOKEN)).toMatchObject(materialized)
+  })
+
+  it('rejects an equal-timestamp materialization update after an optimistic Redux change', () => {
+    const state = importText({ text: '- AAA\n- BBB' })(initialState())
+    const homeAtRead = getThoughtById(state, HOME_TOKEN)!
+    const homeAfterOptimisticChange = { ...homeAtRead }
+    const stateAfterOptimisticChange = {
+      ...state,
+      thoughts: {
+        ...state.thoughts,
+        thoughtIndex: {
+          ...state.thoughts.thoughtIndex,
+          [HOME_TOKEN]: homeAfterOptimisticChange,
+        },
+      },
+    }
+
+    const stateNew = updateThoughts({
+      thoughtIndexUpdates: {
+        [HOME_TOKEN]: {
+          ...homeAtRead,
+          childrenMap: Object.fromEntries(Object.entries(homeAtRead.childrenMap).reverse()),
+        },
+      },
+      lexemeIndexUpdates: {},
+      local: false,
+      remote: false,
+      authoritativeReconcileSnapshot: { [HOME_TOKEN]: homeAtRead },
+    })(stateAfterOptimisticChange)
+
+    expect(getThoughtById(stateNew, HOME_TOKEN)).toBe(homeAfterOptimisticChange)
+  })
 })

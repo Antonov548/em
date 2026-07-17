@@ -3,13 +3,19 @@ import type { MaterializationEvent } from '@treecrdt/interface/engine'
 import type Index from '../../../@types/IndexType'
 import type Lexeme from '../../../@types/Lexeme'
 import type Thought from '../../../@types/Thought'
-import type { ThoughtspaceMaterializationBridge } from '../../thoughtspace'
+import type { ThoughtspaceMaterializationApplyResult, ThoughtspaceMaterializationBridge } from '../../thoughtspace'
 import { refreshAttributeChildrenFromChanges } from '../attributeChildren'
 import thoughtspaceDb from '../thoughtspace'
 import { getTreecrdtClient } from '../treecrdt'
-import { waitForTreecrdtWriteBarrier } from '../writeBarrier'
-import { enqueueMaterializedThoughtsToStoreWork } from './materializationQueue'
+import {
+  getTreecrdtPersistenceIntentState,
+  waitForTreecrdtPersistenceIntents,
+  withTreecrdtWriteBarrier,
+} from '../writeBarrier'
+import { coalesceMaterializationEvents, enqueueMaterializedThoughtsToStoreWork } from './materializationQueue'
 import { refreshThoughtsFromMaterializationChanges } from './materializationThoughtUpdates'
+
+let pendingMaterializationEvents: MaterializationEvent[] = []
 
 /** Persists lexemes that em derives locally from materialized TreeCRDT thoughts. */
 const persistDerivedLexemeUpdates = async (
@@ -33,12 +39,9 @@ const persistDerivedLexemeUpdates = async (
 export async function applyMaterializedThoughtsToStore(
   event: MaterializationEvent,
   materialization: ThoughtspaceMaterializationBridge,
-): Promise<void> {
-  if (event.changes.length === 0) return
-
-  // Local writes and materialization callbacks can race. Wait for queued em -> TreeCRDT writes before reading
-  // SQLite back into app state, otherwise a remote refresh can reapply stale rows over newer optimistic state.
-  await waitForTreecrdtWriteBarrier()
+  canApply: () => boolean = () => true,
+): Promise<ThoughtspaceMaterializationApplyResult> {
+  if (event.changes.length === 0) return 'applied'
 
   await refreshAttributeChildrenFromChanges(getTreecrdtClient(), event.changes)
 
@@ -49,6 +52,7 @@ export async function applyMaterializedThoughtsToStore(
     snapshot,
   )
 
+  if (!canApply()) return 'conflict'
   await persistDerivedLexemeUpdates(lexemeIndexUpdates, snapshot.schemaVersion)
 
   const thoughtIndexUpdates: Index<Thought | null> = {}
@@ -71,8 +75,11 @@ export async function applyMaterializedThoughtsToStore(
   }
 
   if (Object.keys(thoughtIndexUpdates).length > 0 || Object.keys(lexemeIndexUpdates).length > 0) {
-    await materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates })
+    if (!canApply()) return 'conflict'
+    return materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates }, snapshot)
   }
+
+  return 'applied'
 }
 
 /** Serializes materialization refreshes so overlapping async events cannot apply out of order. */
@@ -80,5 +87,40 @@ export function enqueueMaterializedThoughtsToStore(
   event: MaterializationEvent,
   materialization: ThoughtspaceMaterializationBridge,
 ): Promise<void> {
-  return enqueueMaterializedThoughtsToStoreWork(() => applyMaterializedThoughtsToStore(event, materialization))
+  pendingMaterializationEvents.push(event)
+
+  return enqueueMaterializedThoughtsToStoreWork(async () => {
+    let retainedEvents: MaterializationEvent[] = []
+
+    try {
+      while (retainedEvents.length > 0 || pendingMaterializationEvents.length > 0) {
+        retainedEvents.push(...pendingMaterializationEvents)
+        pendingMaterializationEvents = []
+
+        // Local Redux changes register a persistence intent synchronously. Drain them outside the Web Lock, then
+        // require the intent epoch to remain unchanged throughout the provider read and atomic Redux snapshot check.
+        await waitForTreecrdtPersistenceIntents()
+        const intentEpoch = getTreecrdtPersistenceIntentState().epoch
+        const coalescedEvent = coalesceMaterializationEvents(retainedEvents)
+
+        const result = await withTreecrdtWriteBarrier(async (): Promise<ThoughtspaceMaterializationApplyResult> => {
+          /** True while no local persistence started after this materialization attempt began. */
+          const isPersistenceStable = () => {
+            const intentState = getTreecrdtPersistenceIntentState()
+            return intentState.pending === 0 && intentState.epoch === intentEpoch
+          }
+
+          if (!isPersistenceStable()) return 'conflict'
+          return applyMaterializedThoughtsToStore(coalescedEvent, materialization, isPersistenceStable)
+        })
+
+        retainedEvents = result === 'applied' ? [] : [coalescedEvent]
+      }
+    } catch (error) {
+      // Final-state refresh is idempotent. Retain failed events so the next callback retries them instead of silently
+      // losing the only notification for a peer change; the original error still surfaces through the idle barrier.
+      pendingMaterializationEvents = [...retainedEvents, ...pendingMaterializationEvents]
+      throw error
+    }
+  })
 }

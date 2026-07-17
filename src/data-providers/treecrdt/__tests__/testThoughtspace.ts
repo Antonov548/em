@@ -2,6 +2,7 @@ import type ThoughtId from '../../../@types/ThoughtId'
 import type Timestamp from '../../../@types/Timestamp'
 import { EM_TOKEN, SETTINGS_TOKEN, SETTINGS_VALUE } from '../../../constants'
 import hashThought from '../../../util/hashThought'
+import { getAttributeChildrenByParent, reindexAttributeChild } from '../attributeChildren'
 import treecrdtThoughtspace, { createIndexedChildrenMap, init as initTreecrdtThoughtspace } from '../thoughtspace'
 import { getTreecrdtClient, initTreecrdt } from '../treecrdt'
 
@@ -85,6 +86,39 @@ it('does not delete persisted lexemes when freeing cache', async () => {
 
 it('does not require an initialized TreeCRDT client when freeing lexeme cache', async () => {
   await expect(treecrdtThoughtspace.freeLexeme(hashThought('missing'))).resolves.toBeUndefined()
+})
+
+it('does not load a tombstoned TreeCRDT node as a live thought', async () => {
+  await initTestThoughtspace()
+  await persistThoughts([thought(PARENT_ID, EM_TOKEN, 'parent', 0), thought(THOUGHT_A_ID, PARENT_ID, 'a', 0)])
+
+  await treecrdtThoughtspace.updateThoughts({
+    thoughtIndexUpdates: { [THOUGHT_A_ID]: null },
+    lexemeIndexUpdates: {},
+    lexemeIndexUpdatesOld: {},
+    schemaVersion: 0,
+  })
+
+  expect(await getTreecrdtClient().tree.getPayload(THOUGHT_A_ID)).not.toBeNull()
+  await expect(treecrdtThoughtspace.getThoughtById(THOUGHT_A_ID)).resolves.toBeUndefined()
+})
+
+it('does not reindex a tombstoned attribute under TreeCRDT trash', async () => {
+  await initTestThoughtspace()
+  await persistThoughts([thought(PARENT_ID, EM_TOKEN, 'parent', 0), thought(PIN_ID, PARENT_ID, '=pin', 0)])
+
+  await treecrdtThoughtspace.updateThoughts({
+    thoughtIndexUpdates: { [PIN_ID]: null },
+    lexemeIndexUpdates: {},
+    lexemeIndexUpdatesOld: {},
+    schemaVersion: 0,
+  })
+
+  const client = getTreecrdtClient()
+  const trashParent = (await client.tree.parent(PIN_ID)) as ThoughtId
+  await reindexAttributeChild(client, PIN_ID)
+
+  await expect(getAttributeChildrenByParent(client, trashParent)).resolves.toEqual({})
 })
 
 it('uses indexed attribute values as childrenMap keys without changing TreeCRDT node ids', async () => {

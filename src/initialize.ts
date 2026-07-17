@@ -14,7 +14,8 @@ import { pullActionCreator as pull } from './actions/pull'
 import { setCursorActionCreator as setCursor } from './actions/setCursor'
 import { updateThoughtsActionCreator } from './actions/updateThoughts'
 import { commandById, executeCommand } from './commands'
-import db, { thoughtspaceRuntime } from './data-providers/thoughtspace'
+import db, { hasMaterializationSnapshotConflict, thoughtspaceRuntime } from './data-providers/thoughtspace'
+import { getTreecrdtClient } from './data-providers/treecrdt/treecrdt'
 import * as selection from './device/selection'
 import testFlags from './e2e/testFlags'
 import contextToThoughtId from './selectors/contextToThoughtId'
@@ -72,15 +73,25 @@ const initializeInternal = async () => {
           lexemeIndex: state.thoughts.lexemeIndex,
         }
       },
-      apply: updates => {
+      apply: (updates, readSnapshot) => {
+        const state = store.getState()
+        const currentSnapshot = {
+          schemaVersion: state.schemaVersion,
+          thoughtIndex: state.thoughts.thoughtIndex,
+          lexemeIndex: state.thoughts.lexemeIndex,
+        }
+        if (hasMaterializationSnapshotConflict(updates, readSnapshot, currentSnapshot)) return 'conflict'
+
         store.dispatch(
           updateThoughtsActionCreator({
             ...updates,
+            authoritativeReconcileSnapshot: readSnapshot.thoughtIndex,
             local: false,
             remote: false,
             repairCursor: true,
           }),
         )
+        return 'applied'
       },
     },
   })
@@ -155,6 +166,10 @@ const testHelpers = {
   setSelection: selection.set,
   importToContext: withDispatch(importToContext),
   getLexemeFromThoughtspace: (value: string) => db.getLexemeById(hashThought(value)),
+  getTreecrdtClientInfo: () => {
+    const client = getTreecrdtClient()
+    return { runtime: client.runtime, storage: client.storage }
+  },
   getState: store.getState,
   _: _,
 }

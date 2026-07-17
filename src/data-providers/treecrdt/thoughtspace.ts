@@ -23,6 +23,7 @@ import {
   deleteLexeme as deleteLexemeRow,
   ensureLexemesSchema,
   getLexemeById as getLexemeByIdSql,
+  getLexemesByContextId as getLexemesByContextIdSql,
   getLexemesByIds as getLexemesByIdsSql,
   upsertLexeme,
 } from './lexemes'
@@ -74,7 +75,7 @@ const resolveInitReady = (): void => {
 }
 
 /** Waits for `init` to finish before writes touch the TreeCRDT client. */
-const waitForInitReady = async (): Promise<Uint8Array> => {
+export const waitForInitReady = async (): Promise<Uint8Array> => {
   if (!initialized) {
     await initReady
   }
@@ -99,6 +100,7 @@ const waitForTestReplicationDelay = async (): Promise<void> => {
 const getThoughtById = async (id: ThoughtId): Promise<Thought | undefined> => {
   const client = getTreecrdtClient()
 
+  if (!(await client.tree.exists(id))) return undefined
   const payloadBytes = await client.tree.getPayload(id)
   if (payloadBytes === null) return undefined
 
@@ -329,6 +331,12 @@ const getLexemesByIds = async (keys: string[]): Promise<(Lexeme | undefined)[]> 
   return getLexemesByIdsSql(client, keys)
 }
 
+/** Loads every derived lexeme row containing a thought context id. */
+const getLexemesByContextId = async (id: ThoughtId): Promise<Index<Lexeme>> => {
+  const client = getTreecrdtClient()
+  return getLexemesByContextIdSql(client, id)
+}
+
 /** Replaces all stored lexemes. Required by DataProvider conformance tests. */
 const updateLexemeIndex = async (lexemeIndex: Index<Lexeme>): Promise<void> => {
   const client = getTreecrdtClient()
@@ -356,7 +364,9 @@ export const init = async (
   const client = getTreecrdtClient()
   await ensureLexemesSchema(client)
   // Ensure root has payload so getThoughtById can use the generic path
-  await client.local.payload(replicaIdArg, GLOBAL_ROOT_TOKEN, ROOT_PAYLOAD, createTreecrdtLocalWriteOptions())
+  if (!(await client.tree.getPayload(GLOBAL_ROOT_TOKEN))) {
+    await client.local.payload(replicaIdArg, GLOBAL_ROOT_TOKEN, ROOT_PAYLOAD, createTreecrdtLocalWriteOptions())
+  }
   for (const id of SYSTEM_ROOT_THOUGHT_IDS) {
     if (!(await client.tree.exists(id))) {
       const now = Date.now()
@@ -428,8 +438,8 @@ export const init = async (
   resolveInitReady()
 
   const unsubscribeMaterialized = client.onMaterialized(event => {
-    // Local TreeCRDT writes are already reflected optimistically by the app. Peer-tab and server-sync writes arrive
-    // without this tab's write id, so those materialization events must be read back through the app bridge.
+    // Same-tab writes are already reflected optimistically. Replaying their per-operation materialization callbacks can
+    // overwrite later steps in an async command before those steps reach persistence.
     if (isTreecrdtLocalMaterialization(event)) return
     if (!materializationBridge) return
 
@@ -450,6 +460,7 @@ const thoughtspaceDataProvider: DataProvider<[Uint8Array]> = {
   init,
   clear,
   getLexemeById,
+  getLexemesByContextId,
   getLexemesByIds,
   getThoughtById,
   getThoughtsByIds,

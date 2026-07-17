@@ -1,4 +1,24 @@
-import { enqueueMaterializedThoughtsToStoreWork, waitForMaterializedThoughtsToStore } from '../materializationQueue'
+import {
+  coalesceMaterializationEvents,
+  enqueueMaterializedThoughtsToStoreWork,
+  waitForMaterializedThoughtsToStore,
+} from '../materializationQueue'
+
+it('coalesces callbacks in materialized head order', () => {
+  const coalesced = coalesceMaterializationEvents([
+    {
+      headSeq: 2,
+      changes: [{ kind: 'restore', node: 'a', parentAfter: 'root', payload: null }],
+    },
+    {
+      headSeq: 1,
+      changes: [{ kind: 'delete', node: 'a', parentBefore: 'root' }],
+    },
+  ])
+
+  expect(coalesced.headSeq).toBe(2)
+  expect(coalesced.changes.map(change => change.kind)).toEqual(['delete', 'restore'])
+})
 
 it('waits for materialization work queued while waiting for idle', async () => {
   const order: string[] = []
