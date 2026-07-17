@@ -45,6 +45,23 @@ it('surfaces TreeCRDT write failures when waiting for idle', async () => {
   await expect(waitForTreecrdtWriteBarrier()).resolves.toBeUndefined()
 })
 
+it('holds the document Web Lock while running queued work', async () => {
+  const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks')
+  const request = vi.fn((_name: string, callback: () => Promise<void>) => callback())
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: { request },
+  })
+
+  try {
+    await withTreecrdtWriteBarrier(async () => undefined)
+    expect(request).toHaveBeenCalledWith(expect.stringMatching(/^em-treecrdt:/), expect.any(Function))
+  } finally {
+    if (originalLocks) Object.defineProperty(navigator, 'locks', originalLocks)
+    else Reflect.deleteProperty(navigator, 'locks')
+  }
+})
+
 it('identifies only this tab local TreeCRDT materialization events', () => {
   const first = createTreecrdtLocalWriteOptions()
   const second = createTreecrdtLocalWriteOptions()

@@ -74,11 +74,13 @@ export const treecrdtRuntime = {
   init: async (options?: ThoughtspaceRuntimeInitOptions): Promise<{ clientId: string }> => {
     const clientId = await clientIdReady
     await initPermissionsStore()
-    await initTreecrdt()
-    await initTreecrdtThoughtspace(clientIdToReplicaId(clientId), options?.materialization)
+    await withTreecrdtWriteBarrier(async () => {
+      await initTreecrdt()
+      await initTreecrdtThoughtspace(clientIdToReplicaId(clientId), options?.materialization)
+    })
     return { clientId }
   },
-  drop: () => treecrdtDb.clear(),
+  drop: () => withTreecrdtWriteBarrier(() => treecrdtDb.clear()),
   waitForIdle: (): Promise<void> => withIdleTimeout(waitForStableIdle()),
   persistPushQueueBatches,
 }

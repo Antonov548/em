@@ -7,9 +7,11 @@ import type { ThoughtspaceMaterializationBridge } from '../../thoughtspace'
 import { refreshAttributeChildrenFromChanges } from '../attributeChildren'
 import thoughtspaceDb from '../thoughtspace'
 import { getTreecrdtClient } from '../treecrdt'
-import { waitForTreecrdtWriteBarrier } from '../writeBarrier'
-import { enqueueMaterializedThoughtsToStoreWork } from './materializationQueue'
+import { withTreecrdtWriteBarrier } from '../writeBarrier'
+import { coalesceMaterializationEvents, enqueueMaterializedThoughtsToStoreWork } from './materializationQueue'
 import { refreshThoughtsFromMaterializationChanges } from './materializationThoughtUpdates'
+
+let pendingMaterializationEvents: MaterializationEvent[] = []
 
 /** Persists lexemes that em derives locally from materialized TreeCRDT thoughts. */
 const persistDerivedLexemeUpdates = async (
@@ -35,10 +37,6 @@ export async function applyMaterializedThoughtsToStore(
   materialization: ThoughtspaceMaterializationBridge,
 ): Promise<void> {
   if (event.changes.length === 0) return
-
-  // Local writes and materialization callbacks can race. Wait for queued em -> TreeCRDT writes before reading
-  // SQLite back into app state, otherwise a remote refresh can reapply stale rows over newer optimistic state.
-  await waitForTreecrdtWriteBarrier()
 
   await refreshAttributeChildrenFromChanges(getTreecrdtClient(), event.changes)
 
@@ -71,7 +69,7 @@ export async function applyMaterializedThoughtsToStore(
   }
 
   if (Object.keys(thoughtIndexUpdates).length > 0 || Object.keys(lexemeIndexUpdates).length > 0) {
-    await materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates })
+    await materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates }, snapshot)
   }
 }
 
@@ -80,5 +78,18 @@ export function enqueueMaterializedThoughtsToStore(
   event: MaterializationEvent,
   materialization: ThoughtspaceMaterializationBridge,
 ): Promise<void> {
-  return enqueueMaterializedThoughtsToStoreWork(() => applyMaterializedThoughtsToStore(event, materialization))
+  pendingMaterializationEvents.push(event)
+
+  return enqueueMaterializedThoughtsToStoreWork(async () => {
+    if (pendingMaterializationEvents.length === 0) return
+
+    // Serialize peer refreshes with the originating tab's complete persistence batch. Events received while waiting
+    // for the cross-tab lock are coalesced so the app reads the final tree once instead of replaying intermediate UI
+    // states from a multi-operation import.
+    await withTreecrdtWriteBarrier(async () => {
+      const events = pendingMaterializationEvents
+      pendingMaterializationEvents = []
+      await applyMaterializedThoughtsToStore(coalesceMaterializationEvents(events), materialization)
+    })
+  })
 }

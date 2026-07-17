@@ -138,3 +138,32 @@ it('projects TreeCRDT sibling order for both parents after a cross-parent move',
     rank: 1,
   })
 })
+
+it('keeps a restored thought when coalesced changes include an earlier delete', async () => {
+  const restoredParent = thought(HOME_TOKEN, HOME_TOKEN, 0, ROOT_PARENT_ID, [A_ID])
+  const restoredThought = thought(A_ID, 'a', 0, HOME_TOKEN)
+  const state = {
+    ...initialState(),
+    thoughts: {
+      thoughtIndex: {
+        [HOME_TOKEN]: thought(HOME_TOKEN, HOME_TOKEN, 0, ROOT_PARENT_ID),
+      },
+      lexemeIndex: {},
+    },
+  }
+
+  const result = await refreshThoughtsFromMaterializationChanges(
+    [
+      { kind: 'delete', node: A_ID, parentBefore: HOME_TOKEN },
+      { kind: 'restore', node: A_ID, parentAfter: HOME_TOKEN, payload: null },
+    ],
+    fakeProvider({
+      [HOME_TOKEN]: restoredParent,
+      [A_ID]: restoredThought,
+    }),
+    materializationSnapshot(state),
+  )
+
+  expect(result.deletedIds).not.toContain(A_ID)
+  expect(result.thoughts).toEqual(expect.arrayContaining([restoredParent, restoredThought]))
+})

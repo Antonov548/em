@@ -22,7 +22,10 @@ export type ThoughtspaceMaterializedUpdates = {
 
 export type ThoughtspaceMaterializationBridge = {
   getSnapshot: () => ThoughtspaceMaterializationSnapshot
-  apply: (updates: ThoughtspaceMaterializedUpdates) => void | Promise<void>
+  apply: (
+    updates: ThoughtspaceMaterializedUpdates,
+    readSnapshot: ThoughtspaceMaterializationSnapshot,
+  ) => void | Promise<void>
 }
 
 export type ThoughtspaceRuntimeInitOptions = {

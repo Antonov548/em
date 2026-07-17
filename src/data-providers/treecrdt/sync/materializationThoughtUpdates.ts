@@ -118,6 +118,7 @@ export async function refreshThoughtsFromMaterializationChanges(
   for (const ch of changes) {
     switch (ch.kind) {
       case 'insert':
+        deleted.delete(ch.node as ThoughtId)
         touched.add(ch.node as ThoughtId)
         touched.add(ch.parentAfter as ThoughtId)
         orderParents.add(ch.parentAfter as ThoughtId)
@@ -139,6 +140,7 @@ export async function refreshThoughtsFromMaterializationChanges(
         }
         break
       case 'restore':
+        deleted.delete(ch.node as ThoughtId)
         touched.add(ch.node as ThoughtId)
         if (ch.parentAfter) {
           touched.add(ch.parentAfter as ThoughtId)
