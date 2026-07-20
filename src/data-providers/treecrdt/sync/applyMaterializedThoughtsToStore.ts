@@ -69,7 +69,7 @@ export async function applyMaterializedThoughtsToStore(
   }
 
   if (Object.keys(thoughtIndexUpdates).length > 0 || Object.keys(lexemeIndexUpdates).length > 0) {
-    await materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates }, snapshot)
+    await materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates, lexemeIndexUpdatesOld }, snapshot)
   }
 }
 

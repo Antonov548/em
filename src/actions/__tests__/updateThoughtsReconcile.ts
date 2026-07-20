@@ -8,8 +8,8 @@ import updateThoughts from '../updateThoughts'
 it('accepts an equal-timestamp rank refresh when the thought is unchanged since the provider snapshot', () => {
   const state = reducerFlow([newThought('A')])(initialState())
   const id = contextToThoughtId(state, ['A'])!
-  const authoritativeReconcileSnapshot = state.thoughts.thoughtIndex
-  const thoughtAtRead = authoritativeReconcileSnapshot[id]
+  const authoritativeReconcileSnapshot = state.thoughts
+  const thoughtAtRead = authoritativeReconcileSnapshot.thoughtIndex[id]
   const providerRefresh = {
     ...thoughtAtRead,
     rank: thoughtAtRead.rank + 1,
@@ -33,8 +33,8 @@ it('accepts an equal-timestamp rank refresh when the thought is unchanged since 
 it('rejects an equal-timestamp rank refresh after an intervening local update changes the thought', () => {
   const state = reducerFlow([newThought('A')])(initialState())
   const id = contextToThoughtId(state, ['A'])!
-  const authoritativeReconcileSnapshot = state.thoughts.thoughtIndex
-  const thoughtAtRead = authoritativeReconcileSnapshot[id]
+  const authoritativeReconcileSnapshot = state.thoughts
+  const thoughtAtRead = authoritativeReconcileSnapshot.thoughtIndex[id]
   const localUpdate = {
     ...thoughtAtRead,
     rank: thoughtAtRead.rank + 1,
@@ -65,4 +65,34 @@ it('rejects an equal-timestamp rank refresh after an intervening local update ch
   expect(getThoughtById(reconciled, id)).toBe(currentThought)
   expect(getThoughtById(reconciled, id)?.rank).toBe(localUpdate.rank)
   expect(reconciled.pushQueue.at(-1)?.thoughtIndexUpdates).not.toHaveProperty(id)
+})
+
+it('applies an authoritative lexeme delta without erasing an intervening local membership', () => {
+  const stateAtRead = reducerFlow([newThought('A')])(initialState())
+  const idA = contextToThoughtId(stateAtRead, ['A'])!
+  const key = Object.keys(stateAtRead.thoughts.lexemeIndex).find(key =>
+    stateAtRead.thoughts.lexemeIndex[key].contexts.includes(idA),
+  )!
+  const lexemeAtRead = stateAtRead.thoughts.lexemeIndex[key]
+  const idB = '000000000000000000000000000000b0' as typeof idA
+  const lexemeAfterLocalAdd = { ...lexemeAtRead, contexts: [...lexemeAtRead.contexts, idB] }
+  const stateAfterLocalAdd = {
+    ...stateAtRead,
+    thoughts: {
+      ...stateAtRead.thoughts,
+      lexemeIndex: { ...stateAtRead.thoughts.lexemeIndex, [key]: lexemeAfterLocalAdd },
+    },
+  }
+
+  const reconciled = updateThoughts({
+    thoughtIndexUpdates: {},
+    lexemeIndexUpdates: { [key]: null },
+    authoritativeReconcileSnapshot: stateAtRead.thoughts,
+    authoritativeLexemeIndexUpdatesOld: { [key]: lexemeAtRead },
+    local: false,
+    remote: false,
+  })(stateAfterLocalAdd)
+
+  expect(reconciled.thoughts.lexemeIndex[key]?.contexts).toEqual([idB])
+  expect(reconciled.pushQueue.at(-1)?.lexemeIndexUpdates[key]?.contexts).toEqual([idB])
 })

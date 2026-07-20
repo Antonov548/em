@@ -133,3 +133,24 @@ it('falls back to live imported markers before order entries are materialized', 
   expect(getThoughtById(store.getState(), FAVORITES_ORDER_TOKEN)).toBeUndefined()
   expect(getFavoriteTargetIds(store.getState())).toEqual([a.id, b.id])
 })
+
+it('appends a new Favorite after imported markers without existing order entries', () => {
+  store.dispatch(
+    importText({
+      text: `
+        - A
+          - =favorite
+        - B
+          - =favorite
+        - C
+      `,
+    }),
+  )
+
+  const a = getTarget('A')
+  const b = getTarget('B')
+  const c = getTarget('C')
+  store.dispatch(toggleFavorite({ path: c.path }))
+
+  expect(getFavoriteTargetIds(store.getState())).toEqual([a.id, b.id, c.id])
+})

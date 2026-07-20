@@ -5,6 +5,7 @@ import type Thunk from '../@types/Thunk'
 import { FAVORITES_ORDER_TOKEN } from '../constants'
 import findDescendant from '../selectors/findDescendant'
 import { getChildrenRanked } from '../selectors/getChildren'
+import { getFavoriteTargetIds } from '../selectors/getFavorites'
 import getNextRank from '../selectors/getNextRank'
 import getThoughtById from '../selectors/getThoughtById'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
@@ -51,8 +52,9 @@ const toggleFavorite = (state: State, { path }: { path: Path }): State => {
 /** Action-creator for toggling a Favorite and its canonical order entry. */
 export const toggleFavoriteActionCreator =
   (payload: Parameters<typeof toggleFavorite>[1]): Thunk =>
-  dispatch => {
-    dispatch(ensureFavoriteOrder({ targetIds: [head(payload.path)] }))
+  (dispatch, getState) => {
+    const targetId = head(payload.path)
+    dispatch(ensureFavoriteOrder({ targetIds: _.uniq([...getFavoriteTargetIds(getState()), targetId]) }))
     return dispatch({ type: 'toggleFavorite', ...payload })
   }
 

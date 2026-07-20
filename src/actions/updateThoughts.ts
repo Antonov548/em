@@ -35,8 +35,13 @@ export type UpdateThoughtsOptions = Omit<PushBatch, 'lexemeIndexUpdatesOld'> & {
   preventExpandThoughts?: boolean
   /** Allow non-pending thoughts to become pending. This is mainly used by freeThoughts. */
   overwritePending?: boolean
-  /** Snapshot used by an authoritative provider read that may overwrite only thoughts unchanged since the read began. */
-  authoritativeReconcileSnapshot?: Index<Thought>
+  /** Snapshot used by an authoritative provider read that may overwrite only state unchanged since the read began. */
+  authoritativeReconcileSnapshot?: {
+    thoughtIndex: Index<Thought>
+    lexemeIndex: Index<Lexeme>
+  }
+  /** Exact lexeme values from which an authoritative provider refresh was derived. */
+  authoritativeLexemeIndexUpdatesOld?: Index<Lexeme | undefined>
   /**
    * If true, check if the cursor is valid, and if not, move it to the closest valid ancestor.
    * This should only be used when the updates are coming from another device. For local updates, updateThoughts is typically called within a higher level reducer (e.g. moveThought) which handles all cursor updates. There would be false positives during local updates since the cursor is updated after updateThoughts.
@@ -181,6 +186,7 @@ const updateThoughts = (
     isLoading,
     overwritePending,
     authoritativeReconcileSnapshot,
+    authoritativeLexemeIndexUpdatesOld,
     repairCursor,
   }: UpdateThoughtsOptions,
 ) => {
@@ -188,8 +194,6 @@ const updateThoughts = (
 
   const thoughtIndexOld = { ...state.thoughts.thoughtIndex }
   const lexemeIndexOld = { ...state.thoughts.lexemeIndex }
-  const lexemeIndexUpdatesOld = keyValueBy(lexemeIndexUpdates, key => ({ [key]: lexemeIndexOld[key] }))
-
   // Last-write-wins guard for reconcile updates (local === false), e.g. a forced pull (RecentlyEdited's
   // pullJumpHistory) or a cross-device onThoughtChange. The pulled snapshot is read asynchronously from
   // the data provider and may predate a local edit that landed in the meantime; if it overwrote the newer
@@ -214,7 +218,7 @@ const updateThoughts = (
       ? thoughtIndexUpdates
       : keyValueBy(thoughtIndexUpdates, (id, thoughtUpdate) => {
           const thoughtOld = thoughtIndexOld[id]
-          const allowAuthoritativeReconcile = thoughtOld === authoritativeReconcileSnapshot?.[id]
+          const allowAuthoritativeReconcile = thoughtOld === authoritativeReconcileSnapshot?.thoughtIndex[id]
           const isStale =
             thoughtUpdate &&
             thoughtOld &&
@@ -225,15 +229,40 @@ const updateThoughts = (
         })
 
   // TODO: Can we use { overwritePending: !local } and get rid of the overwritePending option to updateThoughts? i.e. Are there any false positives when local is false?
+  const lexemeIndexUpdatesFresh = authoritativeReconcileSnapshot
+    ? keyValueBy(lexemeIndexUpdates, (id, lexemeUpdate) => {
+        const current = lexemeIndexOld[id]
+        const atRead = authoritativeReconcileSnapshot.lexemeIndex[id]
+        if (current === atRead) return { [id]: lexemeUpdate }
+
+        const observedOld = authoritativeLexemeIndexUpdatesOld?.[id] || atRead
+        const observedContexts = new Set(observedOld?.contexts || [])
+        const updatedContexts = new Set(lexemeUpdate?.contexts || [])
+        const removedContexts = new Set([...observedContexts].filter(contextId => !updatedContexts.has(contextId)))
+        const mergedContexts = [...new Set((current?.contexts || []).filter(id => !removedContexts.has(id)))]
+
+        for (const contextId of lexemeUpdate?.contexts || []) {
+          if (!observedContexts.has(contextId) && !mergedContexts.includes(contextId)) mergedContexts.push(contextId)
+        }
+
+        if (mergedContexts.length === 0 && lexemeUpdate === null) return { [id]: null }
+
+        const metadata =
+          !current || (lexemeUpdate && lexemeUpdate.lastUpdated >= current.lastUpdated) ? lexemeUpdate : current
+        return metadata ? { [id]: { ...metadata, contexts: mergedContexts } } : null
+      })
+    : lexemeIndexUpdates
+
+  const lexemeIndexUpdatesOld = keyValueBy(lexemeIndexUpdatesFresh, key => ({ [key]: lexemeIndexOld[key] }))
   const thoughtIndex = mergeUpdates(thoughtIndexOld, thoughtIndexUpdatesFresh, { overwritePending })
-  const lexemeIndex = mergeUpdates(lexemeIndexOld, lexemeIndexUpdates, { overwritePending })
+  const lexemeIndex = mergeUpdates(lexemeIndexOld, lexemeIndexUpdatesFresh, { overwritePending })
 
   const recentlyEditedNew = recentlyEdited || state.recentlyEdited
 
   // updates are queued, detected by the pushQueue middleware, and sync'd with the local and remote stores
   const batch: PushBatch = {
     idbSynced,
-    lexemeIndexUpdates,
+    lexemeIndexUpdates: lexemeIndexUpdatesFresh,
     lexemeIndexUpdatesOld,
     local,
     movePlacements,
@@ -297,7 +326,7 @@ const updateThoughts = (
     // immediately throws if any data integity issues are found
     // otherwise noop
     state => {
-      dataIntegrityCheck(thoughtIndexUpdatesFresh, lexemeIndexUpdates)
+      dataIntegrityCheck(thoughtIndexUpdatesFresh, lexemeIndexUpdatesFresh)
       return state
     },
   ])(state)
