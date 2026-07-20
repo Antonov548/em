@@ -11,6 +11,8 @@ export interface DataProvider<T extends any[] = any> {
   init?: (...args: T) => void
   getLexemeById: (key: string) => Promise<Lexeme | undefined>
   getLexemesByIds: (keys: string[]) => Promise<(Lexeme | undefined)[]>
+  /** Optional reverse lookup used to repair derived lexeme rows after concurrent rename/delete materialization. */
+  getLexemesByContextId?: (id: ThoughtId) => Promise<Index<Lexeme>>
   getThoughtById: (id: ThoughtId) => Promise<Thought | undefined>
   getThoughtsByIds: (ids: ThoughtId[]) => Promise<(Thought | undefined)[]>
   /** Resolved value is provider-specific; the treecrdt provider returns `readonly Operation[]` for local tree mutations. */

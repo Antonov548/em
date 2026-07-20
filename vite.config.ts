@@ -8,11 +8,6 @@ import checker from 'vite-plugin-checker'
 import { createHtmlPlugin } from 'vite-plugin-html'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const crossOriginIsolationHeaders = {
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Cross-Origin-Embedder-Policy': 'require-corp',
-}
-
 const useHttps = !process.env.HTTP
 
 /**
@@ -121,9 +116,5 @@ export default defineConfig({
           },
         }
       : {}),
-    headers: crossOriginIsolationHeaders,
-  },
-  preview: {
-    headers: crossOriginIsolationHeaders,
   },
 })

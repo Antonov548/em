@@ -68,6 +68,23 @@ export async function getLexemesByIds(client: TreecrdtClient, ids: string[]): Pr
   return ids.map(id => map.get(id))
 }
 
+/** Loads every lexeme row containing a thought context id. */
+export async function getLexemesByContextId(
+  client: TreecrdtClient,
+  contextId: string,
+): Promise<Record<string, Lexeme>> {
+  await ensureLexemesSchema(client)
+  const sql = `SELECT json_group_array(json_object('id', lexeme.id, 'lexeme', json(lexeme.payload_json)))
+    FROM ${TABLE} AS lexeme, json_each(lexeme.payload_json, '$.contexts') AS context
+    WHERE context.value = ?1`
+  const text = await client.runner.getText(sql, [contextId])
+  if (!text) return {}
+  const rows = JSON.parse(text) as ({ id: string; lexeme: Lexeme } | null)[]
+  return Object.fromEntries(
+    rows.filter((row): row is { id: string; lexeme: Lexeme } => !!row?.id).map(row => [row.id, row.lexeme]),
+  )
+}
+
 /** Inserts or replaces a lexeme row. */
 export async function upsertLexeme(client: TreecrdtClient, id: string, lexeme: Lexeme): Promise<void> {
   await ensureLexemesSchema(client)
