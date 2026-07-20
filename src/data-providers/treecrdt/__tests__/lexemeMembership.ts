@@ -1,4 +1,3 @@
-import { type TreecrdtClient, createTreecrdtClient } from '@treecrdt/wa-sqlite'
 import type Lexeme from '../../../@types/Lexeme'
 import type Thought from '../../../@types/Thought'
 import type ThoughtId from '../../../@types/ThoughtId'
@@ -6,7 +5,7 @@ import type Timestamp from '../../../@types/Timestamp'
 import { HOME_TOKEN } from '../../../constants'
 import hashThought from '../../../util/hashThought'
 import type { DataProvider } from '../../DataProvider'
-import { applyLexemeUpdate, deleteAllLexemes, ensureLexemesSchema, getLexemeById, upsertLexeme } from '../lexemes'
+import { applyLexemeUpdate, deleteAllLexemes, getLexemeById, upsertLexeme } from '../lexemes'
 import { refreshThoughtsFromMaterializationChanges } from '../sync/materializationThoughtUpdates'
 import { getTreecrdtClient, initTreecrdt } from '../treecrdt'
 
@@ -57,6 +56,16 @@ it('does not revive a concurrent removal while adding a different context', asyn
   ])
 
   expect([...(await getLexemeById(client, KEY))!.contexts].sort()).toEqual([B_ID, C_ID].sort())
+})
+
+it('does not erase unobserved persisted contexts when deleting a missing Redux lexeme', async () => {
+  const client = getTreecrdtClient()
+  const persisted = lexeme([A_ID, B_ID])
+  await upsertLexeme(client, KEY, persisted)
+
+  await applyLexemeUpdate(client, KEY, null, undefined)
+
+  expect(await getLexemeById(client, KEY)).toEqual(persisted)
 })
 
 it('preserves a concurrently persisted context when a stale materialization removes its last known context', async () => {
@@ -114,37 +123,4 @@ it('round-trips an authoritative context order exactly', async () => {
   await applyLexemeUpdate(client, KEY, reordered, original)
 
   expect((await getLexemeById(client, KEY))?.contexts).toEqual(reordered.contexts)
-})
-
-it('migrates legacy payload_json rows without losing metadata or context order', async () => {
-  const client = await createTreecrdtClient({
-    storage: { type: 'memory' },
-    runtime: { type: 'direct' },
-    docId: `legacy-lexemes-${Date.now()}-${Math.random()}`,
-  })
-  const legacy = lexeme([D_ID, B_ID, A_ID], 42)
-
-  try {
-    await client.runner.exec(`
-      CREATE TABLE em_lexemes (id TEXT PRIMARY KEY NOT NULL, payload_json TEXT NOT NULL);
-      INSERT INTO em_lexemes (id, payload_json)
-      VALUES ('${KEY}', '${JSON.stringify(legacy).replace(/'/g, "''")}');
-    `)
-
-    await ensureLexemesSchema(client)
-
-    expect(await getLexemeById(client, KEY)).toEqual(legacy)
-
-    // A second client handle runs schema initialization again, as another tab would. The migration marker
-    // prevents a stale legacy writer from replacing newer normalized state.
-    await applyLexemeUpdate(client, KEY, lexeme([D_ID, B_ID, A_ID, C_ID], 43), legacy)
-    await client.runner.exec(`
-      INSERT INTO em_lexemes (id, payload_json)
-      VALUES ('${KEY}', '${JSON.stringify(legacy).replace(/'/g, "''")}');
-    `)
-    await ensureLexemesSchema(Object.create(client) as TreecrdtClient)
-    expect(await getLexemeById(client, KEY)).toEqual(lexeme([D_ID, B_ID, A_ID, C_ID], 43))
-  } finally {
-    await client.drop()
-  }
 })

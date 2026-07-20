@@ -8,20 +8,12 @@ import type Lexeme from '../../@types/Lexeme'
  * Context membership is normalized so independent tabs can add and remove different contexts
  * without replacing one shared `contexts` JSON array.
  */
-const LEGACY_LEXEMES_TABLE = 'em_lexemes'
 const LEXEMES_TABLE = 'em_lexeme_metadata'
 const CONTEXTS_TABLE = 'em_lexeme_contexts'
-const SCHEMA_TABLE = 'em_treecrdt_schema'
-const NORMALIZED_LEXEMES_MIGRATION = 'normalized-lexemes-v1'
 const schemaReady = new WeakSet<TreecrdtClient>()
 
 const DDL = `
 BEGIN IMMEDIATE;
--- Keep the old table as an idempotent migration source. New writes use only the normalized tables.
-CREATE TABLE IF NOT EXISTS ${LEGACY_LEXEMES_TABLE} (
-  id TEXT PRIMARY KEY NOT NULL,
-  payload_json TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS ${LEXEMES_TABLE} (
   id TEXT PRIMARY KEY NOT NULL,
   created INTEGER NOT NULL,
@@ -36,42 +28,6 @@ CREATE TABLE IF NOT EXISTS ${CONTEXTS_TABLE} (
 );
 CREATE INDEX IF NOT EXISTS em_lexeme_contexts_lexeme_id
   ON ${CONTEXTS_TABLE}(lexeme_id);
-CREATE TABLE IF NOT EXISTS ${SCHEMA_TABLE} (
-  migration TEXT PRIMARY KEY NOT NULL
-);
-
--- Copy legacy metadata once. Invalid JSON rows retain their key with neutral metadata rather than aborting startup.
-INSERT OR IGNORE INTO ${LEXEMES_TABLE} (id, created, last_updated, updated_by)
-SELECT
-  id,
-  CASE WHEN json_valid(payload_json) THEN COALESCE(CAST(json_extract(payload_json, '$.created') AS INTEGER), 0) ELSE 0 END,
-  CASE WHEN json_valid(payload_json) THEN COALESCE(CAST(json_extract(payload_json, '$.lastUpdated') AS INTEGER), 0) ELSE 0 END,
-  CASE WHEN json_valid(payload_json) THEN COALESCE(json_extract(payload_json, '$.updatedBy'), '') ELSE '' END
-FROM ${LEGACY_LEXEMES_TABLE}
-WHERE NOT EXISTS (
-  SELECT 1 FROM ${SCHEMA_TABLE} WHERE migration = '${NORMALIZED_LEXEMES_MIGRATION}'
-);
-
--- Preserve the original array order. Context ids are globally unique, so malformed duplicate memberships are ignored.
-INSERT OR IGNORE INTO ${CONTEXTS_TABLE} (context_id, lexeme_id, position)
-SELECT CAST(context.value AS TEXT), lexeme.id, CAST(context.key AS INTEGER)
-FROM ${LEGACY_LEXEMES_TABLE} AS lexeme
-JOIN json_each(
-  CASE WHEN json_valid(lexeme.payload_json) THEN lexeme.payload_json ELSE '{"contexts":[]}' END,
-  '$.contexts'
-) AS context
-WHERE context.type = 'text'
-  AND NOT EXISTS (
-    SELECT 1 FROM ${SCHEMA_TABLE} WHERE migration = '${NORMALIZED_LEXEMES_MIGRATION}'
-  )
-ORDER BY lexeme.id, CAST(context.key AS INTEGER);
-
--- The copy is transactional, so the legacy payload is no longer needed after both normalized inserts succeed.
-DELETE FROM ${LEGACY_LEXEMES_TABLE}
-WHERE NOT EXISTS (
-  SELECT 1 FROM ${SCHEMA_TABLE} WHERE migration = '${NORMALIZED_LEXEMES_MIGRATION}'
-);
-INSERT OR IGNORE INTO ${SCHEMA_TABLE} (migration) VALUES ('${NORMALIZED_LEXEMES_MIGRATION}');
 COMMIT;
 `
 
@@ -243,11 +199,6 @@ export async function applyLexemeUpdate(
     )
   }
 
-  // A null update with no observed value is the explicit full-delete escape hatch.
-  if (lexeme === null && lexemeOld === undefined) {
-    statements.push(bindParams(`DELETE FROM ${CONTEXTS_TABLE} WHERE lexeme_id = ?1`, [id]))
-  }
-
   if (lexeme === null) {
     statements.push(
       bindParams(
@@ -268,7 +219,6 @@ export async function deleteLexeme(client: TreecrdtClient, id: string): Promise<
     transaction([
       bindParams(`DELETE FROM ${CONTEXTS_TABLE} WHERE lexeme_id = ?1`, [id]),
       bindParams(`DELETE FROM ${LEXEMES_TABLE} WHERE id = ?1`, [id]),
-      bindParams(`DELETE FROM ${LEGACY_LEXEMES_TABLE} WHERE id = ?1`, [id]),
     ]),
   )
 }
@@ -276,11 +226,5 @@ export async function deleteLexeme(client: TreecrdtClient, id: string): Promise<
 /** Deletes all lexeme rows. */
 export async function deleteAllLexemes(client: TreecrdtClient): Promise<void> {
   await ensureLexemesSchema(client)
-  await client.runner.exec(
-    transaction([
-      `DELETE FROM ${CONTEXTS_TABLE}`,
-      `DELETE FROM ${LEXEMES_TABLE}`,
-      `DELETE FROM ${LEGACY_LEXEMES_TABLE}`,
-    ]),
-  )
+  await client.runner.exec(transaction([`DELETE FROM ${CONTEXTS_TABLE}`, `DELETE FROM ${LEXEMES_TABLE}`]))
 }
