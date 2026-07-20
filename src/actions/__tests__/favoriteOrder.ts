@@ -1,9 +1,10 @@
 import type Path from '../../@types/Path'
 import type ThoughtId from '../../@types/ThoughtId'
+import createThought from '../../actions/createThought'
 import { ensureFavoriteOrderActionCreator as ensureFavoriteOrder } from '../../actions/ensureFavoriteOrder'
 import { importTextActionCreator as importText } from '../../actions/importText'
 import reorderFavorite, { reorderFavoriteActionCreator } from '../../actions/reorderFavorite'
-import { toggleFavoriteActionCreator as toggleFavorite } from '../../actions/toggleFavorite'
+import toggleFavoriteReducer, { toggleFavoriteActionCreator as toggleFavorite } from '../../actions/toggleFavorite'
 import { undoActionCreator as undo } from '../../actions/undo'
 import { FAVORITES_ORDER_TOKEN } from '../../constants'
 import { thoughtspaceRuntime } from '../../data-providers/thoughtspace'
@@ -58,6 +59,34 @@ it('keeps a stable entry id and moves a re-added Favorite to the end', () => {
   expect(getFavoriteTargetIds(store.getState())).toEqual([b.id, a.id])
   expect(getChildrenRanked(store.getState(), FAVORITES_ORDER_TOKEN).map(entry => entry.id)).toEqual([entryB, entryA])
   expect(getThoughtById(store.getState(), entryA)?.value).toBe(a.id)
+})
+
+it('removes every duplicate marker created by concurrent Favorite additions', () => {
+  const [a] = importTargets('A')
+  store.dispatch(toggleFavorite({ path: a.path }))
+
+  const duplicateMarkerId = '00000000000000000000000000000fa1' as ThoughtId
+  const duplicateValueId = '00000000000000000000000000000fa2' as ThoughtId
+  const stateWithDuplicateMarker = createThought({
+    id: duplicateMarkerId,
+    path: a.path,
+    rank: 1,
+    value: '=favorite',
+  })(store.getState())
+  const stateWithDuplicateValue = createThought({
+    id: duplicateValueId,
+    path: [...a.path, duplicateMarkerId] as Path,
+    rank: 0,
+    value: 'true',
+  })(stateWithDuplicateMarker)
+
+  expect(getChildrenRanked(stateWithDuplicateValue, a.id).filter(child => child.value === '=favorite')).toHaveLength(2)
+  expect(getFavoriteTargetIds(stateWithDuplicateValue)).toEqual([a.id])
+
+  const removed = toggleFavoriteReducer({ path: a.path })(stateWithDuplicateValue)
+
+  expect(getChildrenRanked(removed, a.id).filter(child => child.value === '=favorite')).toEqual([])
+  expect(getFavoriteTargetIds(removed)).toEqual([])
 })
 
 it('preserves non-undoable order infrastructure added after the action being undone', () => {

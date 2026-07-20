@@ -182,13 +182,24 @@ it('propagates exact Favorites order across SharedWorker tabs and reload', async
     expect(await getVisibleFavoriteOrder(page)).toEqual(expectedOrder)
     expect(await getVisibleFavoriteOrder(peer)).toEqual(expectedOrder)
 
+    phase.current = 'concurrent Favorites reorder'
+    await Promise.all([reorderFavorite(page, values[0], values[2]), reorderFavorite(peer, values[3], null)])
+    await Promise.all([
+      page.evaluate(() => (window.em as WindowEm).testHelpers.waitForThoughtspaceRuntimeIdle()),
+      peer.evaluate(() => (window.em as WindowEm).testHelpers.waitForThoughtspaceRuntimeIdle()),
+    ])
+    const concurrentOrder = await getVisibleFavoriteOrder(page)
+    expect([...concurrentOrder].sort()).toEqual([...values].sort())
+    await waitForVisibleFavoriteOrder(peer, concurrentOrder)
+    expect(await getVisibleFavoriteOrder(peer)).toEqual(concurrentOrder)
+
     phase.current = 'simultaneous reload'
     await Promise.all([page.reload({ waitUntil: 'load' }), peer.reload({ waitUntil: 'load' })])
     await Promise.all([waitForApp(page), waitForApp(peer)])
     await Promise.all([openFavorites(page), openFavorites(peer)])
     await Promise.all([
-      waitForVisibleFavoriteOrder(page, expectedOrder),
-      waitForVisibleFavoriteOrder(peer, expectedOrder),
+      waitForVisibleFavoriteOrder(page, concurrentOrder),
+      waitForVisibleFavoriteOrder(peer, concurrentOrder),
     ])
     expect(runtimeErrors).toEqual([])
   } finally {

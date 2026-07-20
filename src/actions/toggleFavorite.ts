@@ -3,7 +3,6 @@ import type Path from '../@types/Path'
 import type State from '../@types/State'
 import type Thunk from '../@types/Thunk'
 import { FAVORITES_ORDER_TOKEN } from '../constants'
-import findDescendant from '../selectors/findDescendant'
 import { getChildrenRanked } from '../selectors/getChildren'
 import { getFavoriteTargetIds } from '../selectors/getFavorites'
 import getNextRank from '../selectors/getNextRank'
@@ -11,6 +10,7 @@ import getThoughtById from '../selectors/getThoughtById'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
 import favoriteOrderEntryId from '../util/favoriteOrderEntryId'
 import head from '../util/head'
+import deleteThought from './deleteThought'
 import { ensureFavoriteOrderActionCreator as ensureFavoriteOrder } from './ensureFavoriteOrder'
 import toggleAttribute from './toggleAttribute'
 import updateThoughts from './updateThoughts'
@@ -18,9 +18,9 @@ import updateThoughts from './updateThoughts'
 /** Adds or removes a Favorite marker and its canonical ordering entry as one undoable action. */
 const toggleFavorite = (state: State, { path }: { path: Path }): State => {
   const targetId = head(path)
-  const markerId = findDescendant(state, targetId, '=favorite')
+  const markers = getChildrenRanked(state, targetId).filter(child => child.value === '=favorite')
 
-  if (!markerId) {
+  if (markers.length === 0) {
     const entryId = favoriteOrderEntryId(targetId)
     const entry = getThoughtById(state, entryId)
     if (!entry) throw new Error(`Favorite order entry missing: ${entryId}`)
@@ -45,8 +45,12 @@ const toggleFavorite = (state: State, { path }: { path: Path }): State => {
     return toggleAttribute(stateWithEntryAtEnd, { path, values: ['=favorite', 'true'] })
   }
 
-  // Keep inactive order entries as stable CRDT identities. The selector intersects them with live markers.
-  return toggleAttribute(state, { path, values: ['=favorite', 'true'] })
+  // Concurrent tabs can independently create duplicate marker subtrees. Remove every live marker so one
+  // unfavorite operation has set semantics. Keep the inactive order entry as a stable CRDT identity.
+  return markers.reduce(
+    (stateNew, marker) => deleteThought(stateNew, { pathParent: path, thoughtId: marker.id }),
+    state,
+  )
 }
 
 /** Action-creator for toggling a Favorite and its canonical order entry. */
