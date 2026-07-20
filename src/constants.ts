@@ -129,6 +129,10 @@ export const ABSOLUTE_TOKEN = '00000000000000000000000000000003' as ThoughtId
 export const SETTINGS_TOKEN = '00000000000000000000000000000004' as ThoughtId
 export const SETTINGS_VALUE = 'Settings'
 
+// Fixed hidden TreeCRDT sequence that owns cross-tab and cross-device Favorites ordering.
+export const FAVORITES_ORDER_TOKEN = '00000000000000000000000000000005' as ThoughtId
+export const FAVORITES_ORDER_VALUE = '=favoritesOrder'
+
 export const TRANSIENT_THOUGHT_ID = '00000000000000000000000000ffffff' as ThoughtId
 
 export const ROOT_CONTEXTS = [HOME_TOKEN, ABSOLUTE_TOKEN]

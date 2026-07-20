@@ -36,8 +36,11 @@ export type UpdateThoughtsOptions = Omit<PushBatch, 'lexemeIndexUpdatesOld'> & {
   preventExpandThoughts?: boolean
   /** Allow non-pending thoughts to become pending. This is mainly used by freeThoughts. */
   overwritePending?: boolean
-  /** Lexeme snapshot used to reconcile a provider refresh with updates made since the read began. */
-  authoritativeLexemeReconcileSnapshot?: Index<Lexeme>
+  /** Snapshot used by an authoritative provider read that may overwrite only state unchanged since the read began. */
+  authoritativeReconcileSnapshot?: {
+    thoughtIndex: Index<Thought>
+    lexemeIndex: Index<Lexeme>
+  }
   /** Exact lexeme values from which an authoritative provider refresh was derived. */
   authoritativeLexemeIndexUpdatesOld?: Index<Lexeme | undefined>
   /**
@@ -243,7 +246,7 @@ const updateThoughts = (
     idbSynced,
     isLoading,
     overwritePending,
-    authoritativeLexemeReconcileSnapshot,
+    authoritativeReconcileSnapshot,
     authoritativeLexemeIndexUpdatesOld,
     repairCursor,
   }: UpdateThoughtsOptions,
@@ -276,19 +279,21 @@ const updateThoughts = (
       ? thoughtIndexUpdates
       : keyValueBy(thoughtIndexUpdates, (id, thoughtUpdate) => {
           const thoughtOld = thoughtIndexOld[id]
-          return thoughtUpdate &&
+          const allowAuthoritativeReconcile = thoughtOld === authoritativeReconcileSnapshot?.thoughtIndex[id]
+          const isStale =
+            thoughtUpdate &&
             thoughtOld &&
             !thoughtOld.pending &&
-            thoughtUpdate.lastUpdated <= thoughtOld.lastUpdated
-            ? null
-            : { [id]: thoughtUpdate }
+            thoughtUpdate.lastUpdated <= thoughtOld.lastUpdated &&
+            !allowAuthoritativeReconcile
+          return isStale ? null : { [id]: thoughtUpdate }
         })
 
   // TODO: Can we use { overwritePending: !local } and get rid of the overwritePending option to updateThoughts? i.e. Are there any false positives when local is false?
-  const lexemeIndexUpdatesReconciled = authoritativeLexemeReconcileSnapshot
+  const lexemeIndexUpdatesReconciled = authoritativeReconcileSnapshot
     ? keyValueBy(lexemeIndexUpdates, (id, lexemeUpdate) => {
         const current = lexemeIndexOld[id]
-        const atRead = authoritativeLexemeReconcileSnapshot[id]
+        const atRead = authoritativeReconcileSnapshot.lexemeIndex[id]
         if (current === atRead) return { [id]: lexemeUpdate }
 
         const observedOld = authoritativeLexemeIndexUpdatesOld?.[id] || atRead
@@ -311,7 +316,7 @@ const updateThoughts = (
 
   const thoughtIndex = mergeUpdates(thoughtIndexOld, thoughtIndexUpdatesFresh, { overwritePending })
   const lexemeIndexReconciled = mergeUpdates(lexemeIndexOld, lexemeIndexUpdatesReconciled, { overwritePending })
-  const ownershipReconcile = authoritativeLexemeReconcileSnapshot
+  const ownershipReconcile = authoritativeReconcileSnapshot
     ? reconcileAuthoritativeLexemeOwnership({
         lexemeIndex: lexemeIndexReconciled,
         lexemeIndexUpdates: lexemeIndexUpdatesReconciled,
