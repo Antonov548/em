@@ -8,7 +8,7 @@ import State from '../@types/State'
 import Thought from '../@types/Thought'
 import Thunk from '../@types/Thunk'
 import { editThoughtPayload } from '../actions/editThought'
-import { ABSOLUTE_TOKEN, EM_TOKEN, HOME_TOKEN } from '../constants'
+import { ABSOLUTE_TOKEN, EM_TOKEN, GLOBAL_ROOT_TOKEN, HOME_TOKEN, ROOT_PARENT_ID } from '../constants'
 import expandThoughts from '../selectors/expandThoughts'
 import { getLexeme } from '../selectors/getLexeme'
 import getSetting from '../selectors/getSetting'
@@ -18,6 +18,7 @@ import rootedParentOf from '../selectors/rootedParentOf'
 import simplifyPath from '../selectors/simplifyPath'
 import thoughtToPath from '../selectors/thoughtToPath'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
+import hashThought from '../util/hashThought'
 import head from '../util/head'
 import keyValueBy from '../util/keyValueBy'
 import mergeUpdates from '../util/mergeUpdates'
@@ -158,6 +159,66 @@ const dataIntegrityCheck =
     return state
   }
 
+const ROOT_THOUGHT_IDS = new Set<string>([GLOBAL_ROOT_TOKEN, ROOT_PARENT_ID, HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN])
+
+/**
+ * Makes each directly refreshed Thought's final value authoritative for its Lexeme membership.
+ * Contexts that were not part of the refresh are left untouched because they may not be loaded in Redux.
+ */
+const reconcileAuthoritativeLexemeOwnership = ({
+  lexemeIndex,
+  lexemeIndexUpdates,
+  thoughtIndex,
+  thoughtIndexUpdates,
+}: {
+  lexemeIndex: Index<Lexeme>
+  lexemeIndexUpdates: Index<Lexeme | null>
+  thoughtIndex: Index<Thought>
+  thoughtIndexUpdates: Index<Thought | null>
+}): { lexemeIndex: Index<Lexeme>; lexemeIndexUpdates: Index<Lexeme | null> } => {
+  const ownerByContextId = keyValueBy(thoughtIndexUpdates, id => {
+    if (ROOT_THOUGHT_IDS.has(id)) return null
+    const thought = thoughtIndex[id]
+    return { [id]: thought ? hashThought(thought.value) : null }
+  })
+
+  if (Object.keys(ownerByContextId).length === 0) return { lexemeIndex, lexemeIndexUpdates }
+
+  const changedKeys = new Set<string>()
+  const lexemeIndexReconciled = keyValueBy(lexemeIndex, (key, lexeme) => {
+    const contexts = lexeme.contexts.filter(
+      id => !Object.prototype.hasOwnProperty.call(ownerByContextId, id) || ownerByContextId[id] === key,
+    )
+    if (contexts.length === lexeme.contexts.length) return { [key]: lexeme }
+    changedKeys.add(key)
+    return contexts.length > 0 ? { [key]: { ...lexeme, contexts } } : null
+  })
+
+  Object.entries(ownerByContextId).forEach(([id, ownerKey]) => {
+    if (!ownerKey) return
+    const thought = thoughtIndex[id]
+    const lexeme = lexemeIndexReconciled[ownerKey]
+    if (lexeme?.contexts.includes(thought.id)) return
+
+    changedKeys.add(ownerKey)
+    lexemeIndexReconciled[ownerKey] = lexeme
+      ? { ...lexeme, contexts: [...lexeme.contexts, thought.id] }
+      : {
+          contexts: [thought.id],
+          created: thought.created,
+          lastUpdated: thought.lastUpdated,
+          updatedBy: thought.updatedBy,
+        }
+  })
+
+  const updateKeys = [...new Set([...Object.keys(lexemeIndexUpdates), ...changedKeys])]
+
+  return {
+    lexemeIndex: lexemeIndexReconciled,
+    lexemeIndexUpdates: keyValueBy(updateKeys, key => ({ [key]: lexemeIndexReconciled[key] || null })),
+  }
+}
+
 /** Returns true if a non-root context begins with HOME_TOKEN. Used as a data integrity check. */
 // const isInvalidContext = (state: State, cx: ThoughtContext) => {
 //   cx && cx.context && cx.context[0] === HOME_TOKEN && cx.context.length > 1
@@ -229,7 +290,7 @@ const updateThoughts = (
         })
 
   // TODO: Can we use { overwritePending: !local } and get rid of the overwritePending option to updateThoughts? i.e. Are there any false positives when local is false?
-  const lexemeIndexUpdatesFresh = authoritativeReconcileSnapshot
+  const lexemeIndexUpdatesReconciled = authoritativeReconcileSnapshot
     ? keyValueBy(lexemeIndexUpdates, (id, lexemeUpdate) => {
         const current = lexemeIndexOld[id]
         const atRead = authoritativeReconcileSnapshot.lexemeIndex[id]
@@ -253,9 +314,19 @@ const updateThoughts = (
       })
     : lexemeIndexUpdates
 
-  const lexemeIndexUpdatesOld = keyValueBy(lexemeIndexUpdatesFresh, key => ({ [key]: lexemeIndexOld[key] }))
   const thoughtIndex = mergeUpdates(thoughtIndexOld, thoughtIndexUpdatesFresh, { overwritePending })
-  const lexemeIndex = mergeUpdates(lexemeIndexOld, lexemeIndexUpdatesFresh, { overwritePending })
+  const lexemeIndexReconciled = mergeUpdates(lexemeIndexOld, lexemeIndexUpdatesReconciled, { overwritePending })
+  const ownershipReconcile = authoritativeReconcileSnapshot
+    ? reconcileAuthoritativeLexemeOwnership({
+        lexemeIndex: lexemeIndexReconciled,
+        lexemeIndexUpdates: lexemeIndexUpdatesReconciled,
+        thoughtIndex,
+        thoughtIndexUpdates,
+      })
+    : { lexemeIndex: lexemeIndexReconciled, lexemeIndexUpdates: lexemeIndexUpdatesReconciled }
+  const lexemeIndex = ownershipReconcile.lexemeIndex
+  const lexemeIndexUpdatesFresh = ownershipReconcile.lexemeIndexUpdates
+  const lexemeIndexUpdatesOld = keyValueBy(lexemeIndexUpdatesFresh, key => ({ [key]: lexemeIndexOld[key] }))
 
   const recentlyEditedNew = recentlyEdited || state.recentlyEdited
 

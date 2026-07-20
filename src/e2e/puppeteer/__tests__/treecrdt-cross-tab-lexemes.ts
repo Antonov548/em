@@ -13,19 +13,33 @@ const runtimeErrorPattern =
   /sqlite3_open_v2|SQL logic error|database is locked|Thoughtspace persistence failed|TreeCRDT|Cycle detected|Circular path found/i
 
 /** Records browser failures with the active stress phase so timeouts retain their underlying cause. */
-const captureRuntimeErrors = (target: Page, label: string, errors: string[], phase: { current: string }): void => {
-  target.on('pageerror', error => {
+const captureRuntimeErrors = (
+  target: Page,
+  label: string,
+  errors: string[],
+  phase: { current: string },
+): (() => void) => {
+  /** Records an uncaught page error. */
+  const onPageError = (error: unknown) => {
     const message = `${label} during ${phase.current} pageerror: ${error instanceof Error ? error.message : String(error)}`
     errors.push(message)
     console.info(message)
-  })
-  target.on('console', (message: ConsoleMessage) => {
+  }
+  /** Records relevant console errors and warnings. */
+  const onConsole = (message: ConsoleMessage) => {
     if ((message.type() === 'error' || message.type() === 'warn') && runtimeErrorPattern.test(message.text())) {
       const text = `${label} during ${phase.current} console: ${message.text()}`
       errors.push(text)
       console.info(text)
     }
-  })
+  }
+  target.on('pageerror', onPageError)
+  target.on('console', onConsole)
+
+  return () => {
+    target.off('pageerror', onPageError)
+    target.off('console', onConsole)
+  }
 }
 
 /** Waits for a newly opened or reloaded tab to finish app initialization. */
@@ -92,8 +106,10 @@ it('preserves concurrent lexeme membership across SharedWorker tabs and reload',
   const peer = await page.browserContext().newPage()
   const runtimeErrors: string[] = []
   const phase = { current: 'peer initialization' }
-  captureRuntimeErrors(page, 'primary', runtimeErrors, phase)
-  captureRuntimeErrors(peer, 'peer', runtimeErrors, phase)
+  const stopCapturingRuntimeErrors = [
+    captureRuntimeErrors(page, 'primary', runtimeErrors, phase),
+    captureRuntimeErrors(peer, 'peer', runtimeErrors, phase),
+  ]
   const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   const attribute = `=cross-tab-${suffix}`
   const values = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map(value => `${value}-${suffix}`)
@@ -132,6 +148,7 @@ it('preserves concurrent lexeme membership across SharedWorker tabs and reload',
     ])
     expect(runtimeErrors).toEqual([])
   } finally {
+    stopCapturingRuntimeErrors.forEach(stop => stop())
     await peer.close().catch(() => undefined)
   }
 })

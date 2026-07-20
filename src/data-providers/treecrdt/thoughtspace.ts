@@ -7,7 +7,6 @@ import type Timestamp from '../../@types/Timestamp'
 import { EM_TOKEN, GLOBAL_ROOT_TOKEN, ROOT_PARENT_ID, SETTINGS_TOKEN, SETTINGS_VALUE } from '../../constants'
 import testFlags from '../../e2e/testFlags'
 import { childrenMapKey } from '../../util/createChildrenMap'
-import hashThought from '../../util/hashThought'
 import isAttribute from '../../util/isAttribute'
 import sleep from '../../util/sleep'
 import type { DataProvider } from '../DataProvider'
@@ -207,10 +206,6 @@ const updateThoughts = async ({
   const client = getTreecrdtClient()
   const ops: Operation[] = []
 
-  for (const [id, lexeme] of Object.entries(lexemeIndexUpdates)) {
-    await applyLexemeUpdate(client, id, lexeme, lexemeIndexUpdatesOld[id])
-  }
-
   const updates: Index<Thought> = {}
   const deletes: ThoughtId[] = []
 
@@ -291,6 +286,12 @@ const updateThoughts = async ({
         }
       }
     }
+  }
+
+  // TreeCRDT materialization triggers own context membership. Apply compatibility/order updates only
+  // after the authoritative thought operations so a failed insert cannot leave an orphaned context row.
+  for (const [id, lexeme] of Object.entries(lexemeIndexUpdates)) {
+    await applyLexemeUpdate(client, id, lexeme, lexemeIndexUpdatesOld[id])
   }
 
   return ops
@@ -408,16 +409,6 @@ export const init = async (
       createTreecrdtLocalWriteOptions(),
     )
     settingsId = SETTINGS_TOKEN
-  }
-
-  if (settingsId) {
-    const now = Date.now()
-    await upsertLexeme(client, hashThought(SETTINGS_VALUE), {
-      contexts: [settingsId],
-      created: now as Timestamp,
-      lastUpdated: now as Timestamp,
-      updatedBy: '',
-    })
   }
 
   await ensureAttributeChildrenIndexReady(client)

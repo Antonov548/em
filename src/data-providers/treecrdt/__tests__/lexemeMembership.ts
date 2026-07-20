@@ -45,6 +45,19 @@ it('preserves disjoint context additions made from the same stale lexeme snapsho
   expect([...(await getLexemeById(client, KEY))!.contexts].sort()).toEqual([A_ID, B_ID, C_ID].sort())
 })
 
+it('stores one owner when concurrent lexemes claim the same context', async () => {
+  const client = getTreecrdtClient()
+
+  await Promise.all([
+    applyLexemeUpdate(client, 'lexeme-b', lexeme([A_ID], 2), undefined),
+    applyLexemeUpdate(client, 'lexeme-c', lexeme([A_ID], 3), undefined),
+  ])
+
+  const owners = await Promise.all([getLexemeById(client, 'lexeme-b'), getLexemeById(client, 'lexeme-c')])
+
+  expect(owners.filter(owner => owner?.contexts.includes(A_ID))).toHaveLength(1)
+})
+
 it('does not revive a concurrent removal while adding a different context', async () => {
   const client = getTreecrdtClient()
   const original = lexeme([A_ID, B_ID])
