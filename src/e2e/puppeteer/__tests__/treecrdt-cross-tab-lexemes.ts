@@ -103,52 +103,44 @@ const waitForLexemeMembers = (target: Page, attribute: string, expected: string[
   )
 
 it('preserves concurrent lexeme membership across SharedWorker tabs and reload', async () => {
-  const peer = await page.browserContext().newPage()
+  const peers = await Promise.all([page.browserContext().newPage(), page.browserContext().newPage()])
+  const targets = [page, ...peers]
   const runtimeErrors: string[] = []
   const phase = { current: 'peer initialization' }
-  const stopCapturingRuntimeErrors = [
-    captureRuntimeErrors(page, 'primary', runtimeErrors, phase),
-    captureRuntimeErrors(peer, 'peer', runtimeErrors, phase),
-  ]
+  const stopCapturingRuntimeErrors = targets.map((target, index) =>
+    captureRuntimeErrors(target, index === 0 ? 'primary' : `peer ${index}`, runtimeErrors, phase),
+  )
   const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   const attribute = `=cross-tab-${suffix}`
   const values = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map(value => `${value}-${suffix}`)
 
   try {
-    await peer.goto(page.url(), { waitUntil: 'load' })
-    await waitForApp(peer)
+    await Promise.all(peers.map(peer => peer.goto(page.url(), { waitUntil: 'load' })))
+    await Promise.all(peers.map(waitForApp))
 
     phase.current = 'concurrent membership additions'
     await Promise.all([
       importText(page, `- ${values[0]}\n  - ${attribute}\n    - true\n- ${values[1]}\n  - ${attribute}\n    - true`),
-      importText(peer, `- ${values[2]}\n  - ${attribute}\n    - true\n- ${values[3]}\n  - ${attribute}\n    - true`),
+      importText(peers[0], `- ${values[2]}\n  - ${attribute}\n    - true`),
+      importText(peers[1], `- ${values[3]}\n  - ${attribute}\n    - true`),
     ])
-    await Promise.all([
-      waitForLexemeMembers(page, attribute, values.slice(0, 4)),
-      waitForLexemeMembers(peer, attribute, values.slice(0, 4)),
-    ])
+    await Promise.all(targets.map(target => waitForLexemeMembers(target, attribute, values.slice(0, 4))))
 
     phase.current = 'concurrent membership removal and addition'
     await Promise.all([
       toggleAttribute(page, values[0], attribute),
-      importText(peer, `- ${values[4]}\n  - ${attribute}\n    - true`),
+      importText(peers[0], `- ${values[4]}\n  - ${attribute}\n    - true`),
     ])
     const remaining = values.slice(1)
-    await Promise.all([
-      waitForLexemeMembers(page, attribute, remaining),
-      waitForLexemeMembers(peer, attribute, remaining),
-    ])
+    await Promise.all(targets.map(target => waitForLexemeMembers(target, attribute, remaining)))
 
     phase.current = 'simultaneous reload'
-    await Promise.all([page.reload({ waitUntil: 'load' }), peer.reload({ waitUntil: 'load' })])
-    await Promise.all([waitForApp(page), waitForApp(peer)])
-    await Promise.all([
-      waitForLexemeMembers(page, attribute, remaining),
-      waitForLexemeMembers(peer, attribute, remaining),
-    ])
+    await Promise.all(targets.map(target => target.reload({ waitUntil: 'load' })))
+    await Promise.all(targets.map(waitForApp))
+    await Promise.all(targets.map(target => waitForLexemeMembers(target, attribute, remaining)))
     expect(runtimeErrors).toEqual([])
   } finally {
     stopCapturingRuntimeErrors.forEach(stop => stop())
-    await peer.close().catch(() => undefined)
+    await Promise.all(peers.map(peer => peer.close().catch(() => undefined)))
   }
 })
