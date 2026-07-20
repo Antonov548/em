@@ -19,8 +19,8 @@ import {
   upsertAttributeChild,
 } from './attributeChildren'
 import {
+  applyLexemeUpdate,
   deleteAllLexemes,
-  deleteLexeme as deleteLexemeRow,
   ensureLexemesSchema,
   getLexemeById as getLexemeByIdSql,
   getLexemesByIds as getLexemesByIdsSql,
@@ -194,6 +194,7 @@ const getTreecrdtPlacement = async (
 const updateThoughts = async ({
   thoughtIndexUpdates,
   lexemeIndexUpdates,
+  lexemeIndexUpdatesOld,
   movePlacements,
 }: {
   thoughtIndexUpdates: Index<Thought | null>
@@ -207,11 +208,7 @@ const updateThoughts = async ({
   const ops: Operation[] = []
 
   for (const [id, lexeme] of Object.entries(lexemeIndexUpdates)) {
-    if (lexeme === null) {
-      await deleteLexemeRow(client, id)
-    } else {
-      await upsertLexeme(client, id, lexeme)
-    }
+    await applyLexemeUpdate(client, id, lexeme, lexemeIndexUpdatesOld[id])
   }
 
   const updates: Index<Thought> = {}

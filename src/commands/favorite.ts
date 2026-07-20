@@ -1,7 +1,7 @@
 import pluralize from 'pluralize'
 import Command from '../@types/Command'
 import { alertActionCreator as alert } from '../actions/alert'
-import { toggleAttributeActionCreator as toggleAttribute } from '../actions/toggleAttribute'
+import { toggleFavoriteActionCreator as toggleFavorite } from '../actions/toggleFavorite'
 import FavoritesIcon from '../components/icons/FavoritesIcon'
 import findDescendant from '../selectors/findDescendant'
 import getThoughtById from '../selectors/getThoughtById'
@@ -51,8 +51,7 @@ const favorite: Command = {
     if (!thought) return
     const isFavorite = findDescendant(state, id, '=favorite')
     dispatch([
-      // TODO: Fix single value to not overwrite other thought
-      toggleAttribute({ path: cursor, values: ['=favorite', 'true'] }),
+      toggleFavorite({ path: cursor }),
       alert(
         isFavorite
           ? `Removed "${ellipsize(thought.value)}" from favorites`

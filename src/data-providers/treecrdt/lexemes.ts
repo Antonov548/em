@@ -2,88 +2,285 @@
 import type { TreecrdtClient } from '@treecrdt/wa-sqlite'
 import type Lexeme from '../../@types/Lexeme'
 
-/** Application-owned lexeme rows in the same SQLite DB as TreeCRDT (not part of the CRDT tree). */
-const TABLE = 'em_lexemes'
+/**
+ * Application-owned lexeme metadata and context membership in the same SQLite DB as TreeCRDT.
+ *
+ * Context membership is normalized so independent tabs can add and remove different contexts
+ * without replacing one shared `contexts` JSON array.
+ */
+const LEGACY_LEXEMES_TABLE = 'em_lexemes'
+const LEXEMES_TABLE = 'em_lexeme_metadata'
+const CONTEXTS_TABLE = 'em_lexeme_contexts'
+const SCHEMA_TABLE = 'em_treecrdt_schema'
+const NORMALIZED_LEXEMES_MIGRATION = 'normalized-lexemes-v1'
 const schemaReady = new WeakSet<TreecrdtClient>()
 
 const DDL = `
-CREATE TABLE IF NOT EXISTS ${TABLE} (
+BEGIN IMMEDIATE;
+-- Keep the old table as an idempotent migration source. New writes use only the normalized tables.
+CREATE TABLE IF NOT EXISTS ${LEGACY_LEXEMES_TABLE} (
   id TEXT PRIMARY KEY NOT NULL,
   payload_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ${LEXEMES_TABLE} (
+  id TEXT PRIMARY KEY NOT NULL,
+  created INTEGER NOT NULL,
+  last_updated INTEGER NOT NULL,
+  updated_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ${CONTEXTS_TABLE} (
+  context_id TEXT PRIMARY KEY NOT NULL,
+  lexeme_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  FOREIGN KEY (lexeme_id) REFERENCES ${LEXEMES_TABLE}(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS em_lexeme_contexts_lexeme_id
+  ON ${CONTEXTS_TABLE}(lexeme_id);
+CREATE TABLE IF NOT EXISTS ${SCHEMA_TABLE} (
+  migration TEXT PRIMARY KEY NOT NULL
+);
+
+-- Copy legacy metadata once. Invalid JSON rows retain their key with neutral metadata rather than aborting startup.
+INSERT OR IGNORE INTO ${LEXEMES_TABLE} (id, created, last_updated, updated_by)
+SELECT
+  id,
+  CASE WHEN json_valid(payload_json) THEN COALESCE(CAST(json_extract(payload_json, '$.created') AS INTEGER), 0) ELSE 0 END,
+  CASE WHEN json_valid(payload_json) THEN COALESCE(CAST(json_extract(payload_json, '$.lastUpdated') AS INTEGER), 0) ELSE 0 END,
+  CASE WHEN json_valid(payload_json) THEN COALESCE(json_extract(payload_json, '$.updatedBy'), '') ELSE '' END
+FROM ${LEGACY_LEXEMES_TABLE}
+WHERE NOT EXISTS (
+  SELECT 1 FROM ${SCHEMA_TABLE} WHERE migration = '${NORMALIZED_LEXEMES_MIGRATION}'
+);
+
+-- Preserve the original array order. Context ids are globally unique, so malformed duplicate memberships are ignored.
+INSERT OR IGNORE INTO ${CONTEXTS_TABLE} (context_id, lexeme_id, position)
+SELECT CAST(context.value AS TEXT), lexeme.id, CAST(context.key AS INTEGER)
+FROM ${LEGACY_LEXEMES_TABLE} AS lexeme
+JOIN json_each(
+  CASE WHEN json_valid(lexeme.payload_json) THEN lexeme.payload_json ELSE '{"contexts":[]}' END,
+  '$.contexts'
+) AS context
+WHERE context.type = 'text'
+  AND NOT EXISTS (
+    SELECT 1 FROM ${SCHEMA_TABLE} WHERE migration = '${NORMALIZED_LEXEMES_MIGRATION}'
+  )
+ORDER BY lexeme.id, CAST(context.key AS INTEGER);
+
+-- The copy is transactional, so the legacy payload is no longer needed after both normalized inserts succeed.
+DELETE FROM ${LEGACY_LEXEMES_TABLE}
+WHERE NOT EXISTS (
+  SELECT 1 FROM ${SCHEMA_TABLE} WHERE migration = '${NORMALIZED_LEXEMES_MIGRATION}'
+);
+INSERT OR IGNORE INTO ${SCHEMA_TABLE} (migration) VALUES ('${NORMALIZED_LEXEMES_MIGRATION}');
+COMMIT;
 `
 
-/**
- * Injects bound parameters into SQL for `runner.exec`, which does not accept bind args.
- * Only `?1` … `?n` placeholders are supported, in order.
- */
+/** Escapes a value for SQL run through `runner.exec`, which does not accept bind args. */
+const sqlLiteral = (value: string | number | null): string =>
+  value === null ? 'NULL' : typeof value === 'number' ? String(value) : `'${value.replace(/'/g, "''")}'`
+
+/** Injects bound parameters into SQL for `runner.exec`. Only `?1` … `?n` placeholders are supported. */
 function bindParams(sql: string, params: (string | number | null)[]): string {
   let out = sql
   for (let i = params.length - 1; i >= 0; i--) {
-    const p = params[i]
-    const lit = p === null ? 'NULL' : typeof p === 'number' ? String(p) : `'${String(p).replace(/'/g, "''")}'`
-    out = out.replace(new RegExp(`\\?${i + 1}\\b`, 'g'), lit)
+    out = out.replace(new RegExp(`\\?${i + 1}\\b`, 'g'), sqlLiteral(params[i]))
   }
   return out
 }
 
-/** Serializes a Lexeme to JSON for storage in `payload_json`. */
-function serializeLexeme(lexeme: Lexeme): string {
-  return JSON.stringify(lexeme)
-}
+/** Builds an atomic SQLite script from individual statements. */
+const transaction = (statements: string[]): string => `BEGIN IMMEDIATE;\n${statements.join(';\n')};\nCOMMIT;`
 
-/** Parses a stored `payload_json` string into a Lexeme. */
-function parseLexemeJson(text: string): Lexeme {
-  return JSON.parse(text) as Lexeme
-}
+/** Inserts metadata, replacing it with the supplied authoritative Lexeme metadata. */
+const replaceMetadataSql = (id: string, lexeme: Lexeme): string =>
+  bindParams(
+    `INSERT INTO ${LEXEMES_TABLE} (id, created, last_updated, updated_by) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(id) DO UPDATE SET
+       created = excluded.created,
+       last_updated = excluded.last_updated,
+       updated_by = excluded.updated_by`,
+    [id, lexeme.created, lexeme.lastUpdated, lexeme.updatedBy],
+  )
 
-/** Ensures the lexeme table exists. Safe to call on every init. */
+/**
+ * Merges metadata without letting a stale tab move timestamps backwards.
+ * Context membership has independent conflict semantics below.
+ */
+const mergeMetadataSql = (id: string, lexeme: Lexeme): string =>
+  bindParams(
+    `INSERT INTO ${LEXEMES_TABLE} (id, created, last_updated, updated_by) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(id) DO UPDATE SET
+       created = MIN(${LEXEMES_TABLE}.created, excluded.created),
+       last_updated = MAX(${LEXEMES_TABLE}.last_updated, excluded.last_updated),
+       updated_by = CASE
+         WHEN excluded.last_updated >= ${LEXEMES_TABLE}.last_updated THEN excluded.updated_by
+         ELSE ${LEXEMES_TABLE}.updated_by
+       END`,
+    [id, lexeme.created, lexeme.lastUpdated, lexeme.updatedBy],
+  )
+
+/** Ensures the normalized lexeme tables exist. Safe to call on every init. */
 export async function ensureLexemesSchema(client: TreecrdtClient): Promise<void> {
   if (schemaReady.has(client)) return
   await client.runner.exec(DDL)
   schemaReady.add(client)
 }
 
-/** Loads one lexeme by id (lexeme key / hash). */
-export async function getLexemeById(client: TreecrdtClient, id: string): Promise<Lexeme | undefined> {
-  await ensureLexemesSchema(client)
-  const text = await client.runner.getText(`SELECT payload_json FROM ${TABLE} WHERE id = ?1`, [id])
-  if (!text) return undefined
-  return parseLexemeJson(text)
-}
-
 /** Loads lexemes for the given ids; order matches `ids`. */
 export async function getLexemesByIds(client: TreecrdtClient, ids: string[]): Promise<(Lexeme | undefined)[]> {
   if (ids.length === 0) return []
   await ensureLexemesSchema(client)
+
   const placeholders = ids.map(() => '?').join(',')
-  const sql = `SELECT json_group_array(json_object('id', id, 'lexeme', json(payload_json))) FROM ${TABLE} WHERE id IN (${placeholders})`
+  const sql = `
+    SELECT json_group_array(json_object(
+      'id', l.id,
+      'lexeme', json_object(
+        'contexts', json(COALESCE((
+          SELECT json_group_array(context_id)
+          FROM (
+            SELECT context_id
+            FROM ${CONTEXTS_TABLE}
+            WHERE lexeme_id = l.id
+            ORDER BY position, context_id
+          )
+        ), '[]')),
+        'created', l.created,
+        'lastUpdated', l.last_updated,
+        'updatedBy', l.updated_by
+      )
+    ))
+    FROM ${LEXEMES_TABLE} l
+    WHERE l.id IN (${placeholders})
+  `
   const text = await client.runner.getText(sql, ids)
   if (!text) return ids.map(() => undefined)
+
   const rows = JSON.parse(text) as ({ id: string; lexeme: Lexeme } | null)[]
   const map = new Map<string, Lexeme>()
   for (const row of rows) {
-    if (row && row.id) map.set(row.id, row.lexeme)
+    if (row?.id) map.set(row.id, row.lexeme)
   }
   return ids.map(id => map.get(id))
 }
 
-/** Inserts or replaces a lexeme row. */
+/** Loads one lexeme by id (lexeme key / hash). */
+export async function getLexemeById(client: TreecrdtClient, id: string): Promise<Lexeme | undefined> {
+  return (await getLexemesByIds(client, [id]))[0]
+}
+
+/**
+ * Replaces one complete lexeme. Used for controlled initialization and conformance-test bulk replacement.
+ * Normal provider writes should use `applyLexemeUpdate` so they preserve concurrent membership changes.
+ */
 export async function upsertLexeme(client: TreecrdtClient, id: string, lexeme: Lexeme): Promise<void> {
   await ensureLexemesSchema(client)
-  const sql = `INSERT INTO ${TABLE} (id, payload_json) VALUES (?1, ?2)
-    ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json`
-  await client.runner.exec(bindParams(sql, [id, serializeLexeme(lexeme)]))
+  const statements = [
+    replaceMetadataSql(id, lexeme),
+    bindParams(`DELETE FROM ${CONTEXTS_TABLE} WHERE lexeme_id = ?1`, [id]),
+    ...lexeme.contexts.map((contextId, position) =>
+      bindParams(
+        `INSERT INTO ${CONTEXTS_TABLE} (context_id, lexeme_id, position) VALUES (?1, ?2, ?3)
+         ON CONFLICT(context_id) DO UPDATE SET lexeme_id = excluded.lexeme_id, position = excluded.position`,
+        [contextId, id, position],
+      ),
+    ),
+  ]
+  await client.runner.exec(transaction(statements))
 }
 
-/** Deletes a lexeme row by id. */
+/**
+ * Applies the caller-observed change to one lexeme as context-level mutations.
+ *
+ * Removed contexts are deleted only if they still belong to this lexeme, retained contexts are
+ * repositioned only if they still exist, and only newly added contexts are inserted. Thus a stale
+ * whole-object snapshot cannot revive a concurrent removal or erase a concurrent addition.
+ */
+export async function applyLexemeUpdate(
+  client: TreecrdtClient,
+  id: string,
+  lexeme: Lexeme | null,
+  lexemeOld: Lexeme | undefined,
+): Promise<void> {
+  await ensureLexemesSchema(client)
+
+  const oldContexts = new Set(lexemeOld?.contexts ?? [])
+  const newContexts = new Set(lexeme?.contexts ?? [])
+  const removed = [...oldContexts].filter(contextId => !newContexts.has(contextId))
+  const added = [...newContexts].filter(contextId => !oldContexts.has(contextId))
+  const retained = [...newContexts].filter(contextId => oldContexts.has(contextId))
+  const positionByContext = new Map((lexeme?.contexts ?? []).map((contextId, position) => [contextId, position]))
+
+  const statements: string[] = []
+  if (lexeme) statements.push(mergeMetadataSql(id, lexeme))
+
+  // An absent old value means the caller is introducing known memberships, not replacing unknown persisted state.
+  for (const contextId of added) {
+    statements.push(
+      bindParams(
+        `INSERT INTO ${CONTEXTS_TABLE} (context_id, lexeme_id, position) VALUES (?1, ?2, ?3)
+         ON CONFLICT(context_id) DO UPDATE SET lexeme_id = excluded.lexeme_id, position = excluded.position`,
+        [contextId, id, positionByContext.get(contextId) ?? 0],
+      ),
+    )
+  }
+
+  // Do not reinsert retained rows: another tab may already have removed or reassigned the context.
+  for (const contextId of retained) {
+    statements.push(
+      bindParams(`UPDATE ${CONTEXTS_TABLE} SET position = ?3 WHERE context_id = ?1 AND lexeme_id = ?2`, [
+        contextId,
+        id,
+        positionByContext.get(contextId) ?? 0,
+      ]),
+    )
+  }
+
+  // Pair-scoped deletion cannot remove a context that another write has reassigned to a new lexeme.
+  for (const contextId of removed) {
+    statements.push(
+      bindParams(`DELETE FROM ${CONTEXTS_TABLE} WHERE context_id = ?1 AND lexeme_id = ?2`, [contextId, id]),
+    )
+  }
+
+  // A null update with no observed value is the explicit full-delete escape hatch.
+  if (lexeme === null && lexemeOld === undefined) {
+    statements.push(bindParams(`DELETE FROM ${CONTEXTS_TABLE} WHERE lexeme_id = ?1`, [id]))
+  }
+
+  if (lexeme === null) {
+    statements.push(
+      bindParams(
+        `DELETE FROM ${LEXEMES_TABLE}
+         WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM ${CONTEXTS_TABLE} WHERE lexeme_id = ?1)`,
+        [id],
+      ),
+    )
+  }
+
+  if (statements.length > 0) await client.runner.exec(transaction(statements))
+}
+
+/** Deletes a lexeme and all of its context rows by id. */
 export async function deleteLexeme(client: TreecrdtClient, id: string): Promise<void> {
   await ensureLexemesSchema(client)
-  await client.runner.exec(bindParams(`DELETE FROM ${TABLE} WHERE id = ?1`, [id]))
+  await client.runner.exec(
+    transaction([
+      bindParams(`DELETE FROM ${CONTEXTS_TABLE} WHERE lexeme_id = ?1`, [id]),
+      bindParams(`DELETE FROM ${LEXEMES_TABLE} WHERE id = ?1`, [id]),
+      bindParams(`DELETE FROM ${LEGACY_LEXEMES_TABLE} WHERE id = ?1`, [id]),
+    ]),
+  )
 }
 
-/** Deletes all lexeme rows (table must already be ensured for callers that need it). */
+/** Deletes all lexeme rows. */
 export async function deleteAllLexemes(client: TreecrdtClient): Promise<void> {
   await ensureLexemesSchema(client)
-  await client.runner.exec(`DELETE FROM ${TABLE}`)
+  await client.runner.exec(
+    transaction([
+      `DELETE FROM ${CONTEXTS_TABLE}`,
+      `DELETE FROM ${LEXEMES_TABLE}`,
+      `DELETE FROM ${LEGACY_LEXEMES_TABLE}`,
+    ]),
+  )
 }
