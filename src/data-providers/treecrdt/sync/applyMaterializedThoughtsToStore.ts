@@ -14,6 +14,7 @@ import { refreshThoughtsFromMaterializationChanges } from './materializationThou
 /** Persists lexemes that em derives locally from materialized TreeCRDT thoughts. */
 const persistDerivedLexemeUpdates = async (
   lexemeIndexUpdates: Index<Lexeme | null>,
+  lexemeIndexUpdatesOld: Index<Lexeme | undefined>,
   schemaVersion: number,
 ): Promise<void> => {
   if (Object.keys(lexemeIndexUpdates).length === 0) return
@@ -21,7 +22,7 @@ const persistDerivedLexemeUpdates = async (
   await thoughtspaceDb.updateThoughts({
     thoughtIndexUpdates: {},
     lexemeIndexUpdates,
-    lexemeIndexUpdatesOld: {},
+    lexemeIndexUpdatesOld,
     schemaVersion,
   })
 }
@@ -43,13 +44,10 @@ export async function applyMaterializedThoughtsToStore(
   await refreshAttributeChildrenFromChanges(getTreecrdtClient(), event.changes)
 
   const snapshot = materialization.getSnapshot()
-  const { deletedIds, thoughts, lexemeIndexUpdates } = await refreshThoughtsFromMaterializationChanges(
-    event.changes,
-    thoughtspaceDb,
-    snapshot,
-  )
+  const { deletedIds, thoughts, lexemeIndexUpdates, lexemeIndexUpdatesOld } =
+    await refreshThoughtsFromMaterializationChanges(event.changes, thoughtspaceDb, snapshot)
 
-  await persistDerivedLexemeUpdates(lexemeIndexUpdates, snapshot.schemaVersion)
+  await persistDerivedLexemeUpdates(lexemeIndexUpdates, lexemeIndexUpdatesOld, snapshot.schemaVersion)
 
   const thoughtIndexUpdates: Index<Thought | null> = {}
 
@@ -71,7 +69,7 @@ export async function applyMaterializedThoughtsToStore(
   }
 
   if (Object.keys(thoughtIndexUpdates).length > 0 || Object.keys(lexemeIndexUpdates).length > 0) {
-    await materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates })
+    await materialization.apply({ thoughtIndexUpdates, lexemeIndexUpdates, lexemeIndexUpdatesOld }, snapshot)
   }
 }
 
