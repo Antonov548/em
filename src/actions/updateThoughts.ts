@@ -35,6 +35,8 @@ export type UpdateThoughtsOptions = Omit<PushBatch, 'lexemeIndexUpdatesOld'> & {
   preventExpandThoughts?: boolean
   /** Allow non-pending thoughts to become pending. This is mainly used by freeThoughts. */
   overwritePending?: boolean
+  /** Snapshot used by an authoritative provider read that may overwrite only thoughts unchanged since the read began. */
+  authoritativeReconcileSnapshot?: Index<Thought>
   /**
    * If true, check if the cursor is valid, and if not, move it to the closest valid ancestor.
    * This should only be used when the updates are coming from another device. For local updates, updateThoughts is typically called within a higher level reducer (e.g. moveThought) which handles all cursor updates. There would be false positives during local updates since the cursor is updated after updateThoughts.
@@ -178,6 +180,7 @@ const updateThoughts = (
     idbSynced,
     isLoading,
     overwritePending,
+    authoritativeReconcileSnapshot,
     repairCursor,
   }: UpdateThoughtsOptions,
 ) => {
@@ -211,12 +214,14 @@ const updateThoughts = (
       ? thoughtIndexUpdates
       : keyValueBy(thoughtIndexUpdates, (id, thoughtUpdate) => {
           const thoughtOld = thoughtIndexOld[id]
-          return thoughtUpdate &&
+          const allowAuthoritativeReconcile = thoughtOld === authoritativeReconcileSnapshot?.[id]
+          const isStale =
+            thoughtUpdate &&
             thoughtOld &&
             !thoughtOld.pending &&
-            thoughtUpdate.lastUpdated <= thoughtOld.lastUpdated
-            ? null
-            : { [id]: thoughtUpdate }
+            thoughtUpdate.lastUpdated <= thoughtOld.lastUpdated &&
+            !allowAuthoritativeReconcile
+          return isStale ? null : { [id]: thoughtUpdate }
         })
 
   // TODO: Can we use { overwritePending: !local } and get rid of the overwritePending option to updateThoughts? i.e. Are there any false positives when local is false?
