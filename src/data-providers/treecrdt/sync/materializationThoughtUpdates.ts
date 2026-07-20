@@ -16,6 +16,8 @@ export type MaterializationThoughtRefresh = {
   thoughts: Thought[]
   /** Lexeme rows for the refreshed thoughts' values. */
   lexemeIndexUpdates: Index<Lexeme | null>
+  /** Lexeme snapshots from which the refreshed updates were derived. */
+  lexemeIndexUpdatesOld: Index<Lexeme | undefined>
 }
 
 const ROOT_THOUGHT_IDS = new Set<string>([GLOBAL_ROOT_TOKEN, ROOT_PARENT_ID, HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN])
@@ -32,16 +34,21 @@ const maxTimestamp = (...values: (Timestamp | number | undefined)[]): Timestamp 
 const getCurrentLexeme = async (
   key: string,
   updates: Index<Lexeme | null>,
+  updatesOld: Index<Lexeme | undefined>,
   snapshot: ThoughtspaceMaterializationSnapshot,
   db: DataProvider,
 ): Promise<Lexeme | undefined> => {
-  if (updates[key] === null) return undefined
-  return updates[key] || snapshot.lexemeIndex[key] || (await db.getLexemeById(key))
+  if (Object.prototype.hasOwnProperty.call(updates, key)) return updates[key] || undefined
+
+  const current = snapshot.lexemeIndex[key] || (await db.getLexemeById(key))
+  updatesOld[key] = current
+  return current
 }
 
 /** Adds the thought id to the locally derived lexeme for the thought value. */
 const addLexemeContext = async (
   updates: Index<Lexeme | null>,
+  updatesOld: Index<Lexeme | undefined>,
   snapshot: ThoughtspaceMaterializationSnapshot,
   db: DataProvider,
   thought: Thought,
@@ -49,7 +56,7 @@ const addLexemeContext = async (
   if (!isLexemeContextThought(thought)) return
 
   const key = hashThought(thought.value)
-  const lexeme = await getCurrentLexeme(key, updates, snapshot, db)
+  const lexeme = await getCurrentLexeme(key, updates, updatesOld, snapshot, db)
   const contexts = [...(lexeme?.contexts || []).filter(id => id !== thought.id), thought.id]
   updates[key] = {
     contexts,
@@ -62,6 +69,7 @@ const addLexemeContext = async (
 /** Removes the thought id from the locally derived lexeme for the previous thought value. */
 const removeLexemeContext = async (
   updates: Index<Lexeme | null>,
+  updatesOld: Index<Lexeme | undefined>,
   snapshot: ThoughtspaceMaterializationSnapshot,
   db: DataProvider,
   thought: Thought | undefined,
@@ -69,7 +77,7 @@ const removeLexemeContext = async (
   if (!isLexemeContextThought(thought)) return
 
   const key = hashThought(thought.value)
-  const lexeme = await getCurrentLexeme(key, updates, snapshot, db)
+  const lexeme = await getCurrentLexeme(key, updates, updatesOld, snapshot, db)
   if (!lexeme) return
 
   const contexts = lexeme.contexts.filter(id => id !== thought.id)
@@ -158,6 +166,7 @@ export async function refreshThoughtsFromMaterializationChanges(
   const thoughts: Thought[] = []
   const thoughtIndexUpdates: Index<Thought> = {}
   const lexemeIndexUpdates: Index<Lexeme | null> = {}
+  const lexemeIndexUpdatesOld: Index<Lexeme | undefined> = {}
 
   for (const id of touched) {
     const thought = await db.getThoughtById(id)
@@ -166,9 +175,9 @@ export async function refreshThoughtsFromMaterializationChanges(
     orderParents.add(thought.parentId)
     const previous = snapshot.thoughtIndex[id]
     if (previous && previous.value !== thought.value) {
-      await removeLexemeContext(lexemeIndexUpdates, snapshot, db, previous)
+      await removeLexemeContext(lexemeIndexUpdates, lexemeIndexUpdatesOld, snapshot, db, previous)
     }
-    await addLexemeContext(lexemeIndexUpdates, snapshot, db, thought)
+    await addLexemeContext(lexemeIndexUpdates, lexemeIndexUpdatesOld, snapshot, db, thought)
   }
 
   // Current em selectors still sort by numeric rank. For remote/order-only TreeCRDT changes, derive a local rank
@@ -185,12 +194,13 @@ export async function refreshThoughtsFromMaterializationChanges(
   thoughts.push(...Object.values(thoughtIndexUpdates))
 
   for (const id of deleted) {
-    await removeLexemeContext(lexemeIndexUpdates, snapshot, db, snapshot.thoughtIndex[id])
+    await removeLexemeContext(lexemeIndexUpdates, lexemeIndexUpdatesOld, snapshot, db, snapshot.thoughtIndex[id])
   }
 
   return {
     deletedIds: [...deleted],
     thoughts,
     lexemeIndexUpdates,
+    lexemeIndexUpdatesOld,
   }
 }

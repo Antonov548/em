@@ -18,11 +18,15 @@ export type ThoughtspaceMaterializationSnapshot = {
 export type ThoughtspaceMaterializedUpdates = {
   thoughtIndexUpdates: Index<Thought | null>
   lexemeIndexUpdates: Index<Lexeme | null>
+  lexemeIndexUpdatesOld: Index<Lexeme | undefined>
 }
 
 export type ThoughtspaceMaterializationBridge = {
   getSnapshot: () => ThoughtspaceMaterializationSnapshot
-  apply: (updates: ThoughtspaceMaterializedUpdates) => void | Promise<void>
+  apply: (
+    updates: ThoughtspaceMaterializedUpdates,
+    readSnapshot: ThoughtspaceMaterializationSnapshot,
+  ) => void | Promise<void>
 }
 
 export type ThoughtspaceRuntimeInitOptions = {

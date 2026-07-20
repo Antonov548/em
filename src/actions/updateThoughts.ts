@@ -8,7 +8,7 @@ import State from '../@types/State'
 import Thought from '../@types/Thought'
 import Thunk from '../@types/Thunk'
 import { editThoughtPayload } from '../actions/editThought'
-import { ABSOLUTE_TOKEN, EM_TOKEN, HOME_TOKEN } from '../constants'
+import { ABSOLUTE_TOKEN, EM_TOKEN, GLOBAL_ROOT_TOKEN, HOME_TOKEN, ROOT_PARENT_ID } from '../constants'
 import expandThoughts from '../selectors/expandThoughts'
 import { getLexeme } from '../selectors/getLexeme'
 import getSetting from '../selectors/getSetting'
@@ -18,6 +18,7 @@ import rootedParentOf from '../selectors/rootedParentOf'
 import simplifyPath from '../selectors/simplifyPath'
 import thoughtToPath from '../selectors/thoughtToPath'
 import { registerActionMetadata } from '../util/actionMetadata.registry'
+import hashThought from '../util/hashThought'
 import head from '../util/head'
 import keyValueBy from '../util/keyValueBy'
 import mergeUpdates from '../util/mergeUpdates'
@@ -35,6 +36,10 @@ export type UpdateThoughtsOptions = Omit<PushBatch, 'lexemeIndexUpdatesOld'> & {
   preventExpandThoughts?: boolean
   /** Allow non-pending thoughts to become pending. This is mainly used by freeThoughts. */
   overwritePending?: boolean
+  /** Lexeme snapshot used to reconcile a provider refresh with updates made since the read began. */
+  authoritativeLexemeReconcileSnapshot?: Index<Lexeme>
+  /** Exact lexeme values from which an authoritative provider refresh was derived. */
+  authoritativeLexemeIndexUpdatesOld?: Index<Lexeme | undefined>
   /**
    * If true, check if the cursor is valid, and if not, move it to the closest valid ancestor.
    * This should only be used when the updates are coming from another device. For local updates, updateThoughts is typically called within a higher level reducer (e.g. moveThought) which handles all cursor updates. There would be false positives during local updates since the cursor is updated after updateThoughts.
@@ -151,6 +156,66 @@ const dataIntegrityCheck =
     return state
   }
 
+const ROOT_THOUGHT_IDS = new Set<string>([GLOBAL_ROOT_TOKEN, ROOT_PARENT_ID, HOME_TOKEN, EM_TOKEN, ABSOLUTE_TOKEN])
+
+/**
+ * Makes each directly refreshed Thought's final value authoritative for its Lexeme membership.
+ * Contexts that were not part of the refresh are left untouched because they may not be loaded in Redux.
+ */
+const reconcileAuthoritativeLexemeOwnership = ({
+  lexemeIndex,
+  lexemeIndexUpdates,
+  thoughtIndex,
+  thoughtIndexUpdates,
+}: {
+  lexemeIndex: Index<Lexeme>
+  lexemeIndexUpdates: Index<Lexeme | null>
+  thoughtIndex: Index<Thought>
+  thoughtIndexUpdates: Index<Thought | null>
+}): { lexemeIndex: Index<Lexeme>; lexemeIndexUpdates: Index<Lexeme | null> } => {
+  const ownerByContextId = keyValueBy(thoughtIndexUpdates, id => {
+    if (ROOT_THOUGHT_IDS.has(id)) return null
+    const thought = thoughtIndex[id]
+    return { [id]: thought ? hashThought(thought.value) : null }
+  })
+
+  if (Object.keys(ownerByContextId).length === 0) return { lexemeIndex, lexemeIndexUpdates }
+
+  const changedKeys = new Set<string>()
+  const lexemeIndexReconciled = keyValueBy(lexemeIndex, (key, lexeme) => {
+    const contexts = lexeme.contexts.filter(
+      id => !Object.prototype.hasOwnProperty.call(ownerByContextId, id) || ownerByContextId[id] === key,
+    )
+    if (contexts.length === lexeme.contexts.length) return { [key]: lexeme }
+    changedKeys.add(key)
+    return contexts.length > 0 ? { [key]: { ...lexeme, contexts } } : null
+  })
+
+  Object.entries(ownerByContextId).forEach(([id, ownerKey]) => {
+    if (!ownerKey) return
+    const thought = thoughtIndex[id]
+    const lexeme = lexemeIndexReconciled[ownerKey]
+    if (lexeme?.contexts.includes(thought.id)) return
+
+    changedKeys.add(ownerKey)
+    lexemeIndexReconciled[ownerKey] = lexeme
+      ? { ...lexeme, contexts: [...lexeme.contexts, thought.id] }
+      : {
+          contexts: [thought.id],
+          created: thought.created,
+          lastUpdated: thought.lastUpdated,
+          updatedBy: thought.updatedBy,
+        }
+  })
+
+  const updateKeys = [...new Set([...Object.keys(lexemeIndexUpdates), ...changedKeys])]
+
+  return {
+    lexemeIndex: lexemeIndexReconciled,
+    lexemeIndexUpdates: keyValueBy(updateKeys, key => ({ [key]: lexemeIndexReconciled[key] || null })),
+  }
+}
+
 /** Returns true if a non-root context begins with HOME_TOKEN. Used as a data integrity check. */
 // const isInvalidContext = (state: State, cx: ThoughtContext) => {
 //   cx && cx.context && cx.context[0] === HOME_TOKEN && cx.context.length > 1
@@ -178,6 +243,8 @@ const updateThoughts = (
     idbSynced,
     isLoading,
     overwritePending,
+    authoritativeLexemeReconcileSnapshot,
+    authoritativeLexemeIndexUpdatesOld,
     repairCursor,
   }: UpdateThoughtsOptions,
 ) => {
@@ -185,8 +252,6 @@ const updateThoughts = (
 
   const thoughtIndexOld = { ...state.thoughts.thoughtIndex }
   const lexemeIndexOld = { ...state.thoughts.lexemeIndex }
-  const lexemeIndexUpdatesOld = keyValueBy(lexemeIndexUpdates, key => ({ [key]: lexemeIndexOld[key] }))
-
   // Last-write-wins guard for reconcile updates (local === false), e.g. a forced pull (RecentlyEdited's
   // pullJumpHistory) or a cross-device onThoughtChange. The pulled snapshot is read asynchronously from
   // the data provider and may predate a local edit that landed in the meantime; if it overwrote the newer
@@ -220,15 +285,50 @@ const updateThoughts = (
         })
 
   // TODO: Can we use { overwritePending: !local } and get rid of the overwritePending option to updateThoughts? i.e. Are there any false positives when local is false?
+  const lexemeIndexUpdatesReconciled = authoritativeLexemeReconcileSnapshot
+    ? keyValueBy(lexemeIndexUpdates, (id, lexemeUpdate) => {
+        const current = lexemeIndexOld[id]
+        const atRead = authoritativeLexemeReconcileSnapshot[id]
+        if (current === atRead) return { [id]: lexemeUpdate }
+
+        const observedOld = authoritativeLexemeIndexUpdatesOld?.[id] || atRead
+        const observedContexts = new Set(observedOld?.contexts || [])
+        const updatedContexts = new Set(lexemeUpdate?.contexts || [])
+        const removedContexts = new Set([...observedContexts].filter(contextId => !updatedContexts.has(contextId)))
+        const mergedContexts = [...new Set((current?.contexts || []).filter(id => !removedContexts.has(id)))]
+
+        for (const contextId of lexemeUpdate?.contexts || []) {
+          if (!observedContexts.has(contextId) && !mergedContexts.includes(contextId)) mergedContexts.push(contextId)
+        }
+
+        if (mergedContexts.length === 0 && lexemeUpdate === null) return { [id]: null }
+
+        const metadata =
+          !current || (lexemeUpdate && lexemeUpdate.lastUpdated >= current.lastUpdated) ? lexemeUpdate : current
+        return metadata ? { [id]: { ...metadata, contexts: mergedContexts } } : null
+      })
+    : lexemeIndexUpdates
+
   const thoughtIndex = mergeUpdates(thoughtIndexOld, thoughtIndexUpdatesFresh, { overwritePending })
-  const lexemeIndex = mergeUpdates(lexemeIndexOld, lexemeIndexUpdates, { overwritePending })
+  const lexemeIndexReconciled = mergeUpdates(lexemeIndexOld, lexemeIndexUpdatesReconciled, { overwritePending })
+  const ownershipReconcile = authoritativeLexemeReconcileSnapshot
+    ? reconcileAuthoritativeLexemeOwnership({
+        lexemeIndex: lexemeIndexReconciled,
+        lexemeIndexUpdates: lexemeIndexUpdatesReconciled,
+        thoughtIndex,
+        thoughtIndexUpdates,
+      })
+    : { lexemeIndex: lexemeIndexReconciled, lexemeIndexUpdates: lexemeIndexUpdatesReconciled }
+  const lexemeIndex = ownershipReconcile.lexemeIndex
+  const lexemeIndexUpdatesFresh = ownershipReconcile.lexemeIndexUpdates
+  const lexemeIndexUpdatesOld = keyValueBy(lexemeIndexUpdatesFresh, key => ({ [key]: lexemeIndexOld[key] }))
 
   const recentlyEditedNew = recentlyEdited || state.recentlyEdited
 
   // updates are queued, detected by the pushQueue middleware, and sync'd with the local and remote stores
   const batch: PushBatch = {
     idbSynced,
-    lexemeIndexUpdates,
+    lexemeIndexUpdates: lexemeIndexUpdatesFresh,
     lexemeIndexUpdatesOld,
     local,
     movePlacements,
@@ -292,7 +392,7 @@ const updateThoughts = (
     // immediately throws if any data integity issues are found
     // otherwise noop
     state => {
-      dataIntegrityCheck(thoughtIndexUpdatesFresh, lexemeIndexUpdates)
+      dataIntegrityCheck(thoughtIndexUpdatesFresh, lexemeIndexUpdatesFresh)
       return state
     },
   ])(state)

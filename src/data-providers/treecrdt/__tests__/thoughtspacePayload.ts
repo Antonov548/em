@@ -1,3 +1,4 @@
+import hashThought from '../../../util/hashThought'
 import { encodeThoughtPayload } from '../payload'
 
 it('keeps em rank out of the serialized TreeCRDT thought payload', () => {
@@ -13,5 +14,6 @@ it('keeps em rank out of the serialized TreeCRDT thought payload', () => {
     created: 1,
     lastUpdated: 2,
     updatedBy: 'test',
+    lexemeKey: hashThought('a'),
   })
 })
