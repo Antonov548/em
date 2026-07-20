@@ -17,8 +17,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   CI: true
   COPILOT_AGENT_FIREWALL_ALLOW_LIST_ADDITIONS: googlechromelabs.github.io,storage.googleapis.com
-  # Skip Puppeteer's Chrome download on install — no CI job uses the bundled browser (Puppeteer
-  # tests attach to the browserless/chrome service via CDP), saving ~20s per install.
+  # Skip Puppeteer's postinstall download. The focused SharedWorker job installs its pinned
+  # browser explicitly so a cached node_modules restore cannot leave the browser cache empty.
   PUPPETEER_SKIP_DOWNLOAD: true
 
 jobs:
@@ -50,11 +50,20 @@ jobs:
       - name: Install npm dependencies
         uses: ./.github/actions/install
 
+      - name: Install Puppeteer Chrome
+        run: yarn puppeteer browsers install chrome
+
       - name: Build
         run: yarn build
 
       - name: Serve
         uses: ./.github/actions/serve
+
+      - name: Test SharedWorker persistence
+        env:
+          PUPPETEER_LOCAL_BROWSER: 1
+          TREECRDT_TEST_RUNTIME: shared-worker
+        run: yarn test:puppeteer cursor -t 'persistent cursor restoration'
 
       - name: Test
         run: yarn test:puppeteer
