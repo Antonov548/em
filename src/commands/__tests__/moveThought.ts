@@ -1,6 +1,7 @@
 import { clearActionCreator as clear } from '../../actions/clear'
 import { importTextActionCreator as importTextAction } from '../../actions/importText'
 import { HOME_TOKEN } from '../../constants'
+import { ThoughtspaceStorageType } from '../../data-providers/thoughtspace'
 import { initialize } from '../../initialize'
 import exportContext from '../../selectors/exportContext'
 import appStore from '../../stores/app'
@@ -17,7 +18,7 @@ afterEach(cleanupTestApp)
 // TODO: TransactionInactiveError: A request was placed against a transaction which is currently not active, or which is finished.
 it.skip('merge up to pending destination descendant', async () => {
   timer.useFakeTimer()
-  initialize()
+  initialize({ storageType: ThoughtspaceStorageType.Memory })
   await timer.runAllAsync()
 
   const text = `
@@ -42,7 +43,7 @@ it.skip('merge up to pending destination descendant', async () => {
   appStore.dispatch(clear())
   await timer.runAllAsync()
 
-  initialize()
+  initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   await timer.runAllAsync()
 

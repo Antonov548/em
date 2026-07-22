@@ -25,8 +25,14 @@ export type ThoughtspaceMaterializationBridge = {
   apply: (updates: ThoughtspaceMaterializedUpdates) => void | Promise<void>
 }
 
+export enum ThoughtspaceStorageType {
+  Persistante = 'persistante',
+  Memory = 'memory',
+}
+
 export type ThoughtspaceRuntimeInitOptions = {
   materialization?: ThoughtspaceMaterializationBridge
+  storageType?: ThoughtspaceStorageType
 }
 
 export type ThoughtspaceAccessBlockedReason = 'already-open' | 'unsupported'

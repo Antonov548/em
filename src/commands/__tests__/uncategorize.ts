@@ -2,6 +2,7 @@ import { importTextActionCreator as importText } from '../../actions/importText'
 import { undoActionCreator as undo } from '../../actions/undo'
 import { executeCommandWithMulticursor } from '../../commands'
 import { HOME_TOKEN } from '../../constants'
+import { ThoughtspaceStorageType } from '../../data-providers/thoughtspace'
 import { initialize } from '../../initialize'
 import exportContext from '../../selectors/exportContext'
 import store from '../../stores/app'
@@ -48,7 +49,7 @@ describe('uncategorize', () => {
   })
 
   it('persists undoing uncategorize of a duplicate uncle without a save error', async () => {
-    const { cleanup } = await initialize()
+    const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
     try {
       store.dispatch([

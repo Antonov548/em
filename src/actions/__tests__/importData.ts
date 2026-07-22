@@ -1,5 +1,6 @@
 import MimeType from '../../@types/MimeType'
 import { EMPTY_SPACE, EM_TOKEN, HOME_PATH, HOME_TOKEN } from '../../constants'
+import { ThoughtspaceStorageType } from '../../data-providers/thoughtspace'
 import { initialize } from '../../initialize'
 import contextToPath from '../../selectors/contextToPath'
 import exportContext from '../../selectors/exportContext'
@@ -12,7 +13,7 @@ import { newThoughtActionCreator as newThought } from '../newThought'
 /** Helper function that initializes the store, imports html into the root, and exports it as plaintext to make easily readable assertions. This is async because importFiles is async. */
 const importExport = async (html: string, outputFormat: MimeType = 'text/plain') => {
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
   store.dispatch(importDataActionCreator({ html }))
   await vi.runOnlyPendingTimersAsync()
   const exported = exportContext(store.getState(), HOME_PATH, outputFormat)
@@ -1068,7 +1069,7 @@ it('empty parent', async () => {
   - x`
 
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({}),
@@ -1108,7 +1109,7 @@ p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 9.0px Helvetica; color: #000000}
 </html>
 `
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({ value: 'a' }),
@@ -1127,7 +1128,7 @@ p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 9.0px Helvetica; color: #000000}
 
 it('paste em text with browser-injected meta charset as inline, not subthought', async () => {
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({ value: 'a' }),
@@ -1154,7 +1155,7 @@ it('paste em text with browser-injected meta charset as inline, not subthought',
 
 it('paste em text with formatted html and meta charset as inline', async () => {
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({ value: 'a' }),
@@ -1186,7 +1187,7 @@ it('insert single-line HTML copied from Windows desktop Chrome at end of thought
 </body>
 </html>`
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({ value: 'a' }),
@@ -1206,7 +1207,7 @@ it('insert single-line HTML copied from Windows desktop Chrome at end of thought
 it('insert single-line HTML copied from Mac desktop Chrome at end of thought', async () => {
   const html = `<meta charset='utf-8'>foo`
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({ value: 'a' }),
@@ -1243,7 +1244,7 @@ bar</i></p>
 </html>
 `
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({ value: 'a' }),
@@ -1280,7 +1281,7 @@ p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 9.0px Helvetica; color: #000000}
 </html>
 `
   vi.useFakeTimers()
-  const { cleanup } = await initialize()
+  const { cleanup } = await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     newThought({ value: 'x' }),

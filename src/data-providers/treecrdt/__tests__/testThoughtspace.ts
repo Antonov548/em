@@ -2,6 +2,7 @@ import type ThoughtId from '../../../@types/ThoughtId'
 import type Timestamp from '../../../@types/Timestamp'
 import { EM_TOKEN, SETTINGS_TOKEN, SETTINGS_VALUE } from '../../../constants'
 import hashThought from '../../../util/hashThought'
+import { ThoughtspaceStorageType } from '../../thoughtspace'
 import treecrdtThoughtspace, { createIndexedChildrenMap, init as initTreecrdtThoughtspace } from '../thoughtspace'
 import { getTreecrdtClient, initTreecrdt } from '../treecrdt'
 
@@ -9,7 +10,7 @@ const TEST_REPLICA_ID = new Uint8Array(32).fill(1)
 
 /** Initializes an isolated in-memory TreeCRDT client and thoughtspace for unit tests. */
 const initTestThoughtspace = async (replicaId: Uint8Array = TEST_REPLICA_ID): Promise<void> => {
-  await initTreecrdt()
+  await initTreecrdt(ThoughtspaceStorageType.Memory)
   await initTreecrdtThoughtspace(replicaId)
 }
 

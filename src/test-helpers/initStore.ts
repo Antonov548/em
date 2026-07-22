@@ -1,5 +1,5 @@
 import { clearActionCreator as clear } from '../actions/clear'
-import { thoughtspaceRuntime } from '../data-providers/thoughtspace'
+import { ThoughtspaceStorageType, thoughtspaceRuntime } from '../data-providers/thoughtspace'
 import store from '../stores/app'
 import waitForThoughtspaceIdle from './waitForThoughtspaceIdle'
 
@@ -27,7 +27,7 @@ const initStore = async ({ persist, allowTutorial }: Params = {}) => {
   if (!persist) {
     await waitForThoughtspaceIdle()
     await thoughtspaceRuntime.drop()
-    await thoughtspaceRuntime.init()
+    await thoughtspaceRuntime.init({ storageType: ThoughtspaceStorageType.Memory })
     store.dispatch(clear())
   }
 

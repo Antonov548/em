@@ -1,22 +1,15 @@
 import { type ClientOptions, type TreecrdtClient, createTreecrdtClient } from '@treecrdt/wa-sqlite'
 import storage from '../../util/storage'
+import { ThoughtspaceStorageType } from '../thoughtspace'
 import { tsid } from '../thoughtspaceSession'
 
 let client: TreecrdtClient | null = null
 
 const beforeCloseHandlers = new Set<() => Promise<void>>()
 
-/** Creates an isolated in-memory document id for each Vitest TreeCRDT client. */
-const createTestDocId = (): string => `${tsid}-test-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-
-/** Creates the minimal test client needed by initialize without loading wa-sqlite assets in Vitest. */
-const createTestTreecrdtClient = async (): Promise<TreecrdtClient> => {
-  return createTreecrdtClient({
-    storage: { type: 'memory' },
-    runtime: { type: 'direct' },
-    docId: createTestDocId(),
-  })
-}
+/** Creates an isolated document id for in-memory clients. */
+const createMemoryDocId = (): string =>
+  `${tsid}-memory-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
 /** Runs before `client.close()` / `client.drop()` (e.g. tear down WebSocket sync). Returns an unregister function. */
 export const registerBeforeTreecrdtClose = (handler: () => Promise<void>): (() => void) => {
@@ -45,18 +38,16 @@ const getRuntime = (): NonNullable<ClientOptions['runtime']> => {
 }
 
 /** Initializes the TreeCRDT client. */
-export const initTreecrdt = async (): Promise<TreecrdtClient> => {
+export const initTreecrdt = async (
+  storageType: ThoughtspaceStorageType = ThoughtspaceStorageType.Persistante,
+): Promise<TreecrdtClient> => {
   if (client) return client
 
-  if (import.meta.env.MODE === 'test') {
-    client = await createTestTreecrdtClient()
-    return client
-  }
-
-  const useTransientMemory = storage.getItem('treecrdtStorage') === 'memory'
+  const useMemoryStorage =
+    storageType === ThoughtspaceStorageType.Memory || storage.getItem('treecrdtStorage') === 'memory'
 
   client = await createTreecrdtClient({
-    storage: useTransientMemory
+    storage: useMemoryStorage
       ? { type: 'memory' }
       : {
           type: 'opfs',
@@ -65,8 +56,8 @@ export const initTreecrdt = async (): Promise<TreecrdtClient> => {
         },
     // Tests may opt into memory storage when persistence is irrelevant. Persistent browser sessions use one
     // dedicated worker guarded by the page-lifetime session lock acquired before app initialization.
-    runtime: useTransientMemory ? { type: 'direct' } : getRuntime(),
-    docId: tsid,
+    runtime: useMemoryStorage ? { type: 'direct' } : getRuntime(),
+    docId: storageType === ThoughtspaceStorageType.Memory ? createMemoryDocId() : tsid,
   })
   return client
 }

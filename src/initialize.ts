@@ -14,7 +14,7 @@ import { pullActionCreator as pull } from './actions/pull'
 import { setCursorActionCreator as setCursor } from './actions/setCursor'
 import { updateThoughtsActionCreator } from './actions/updateThoughts'
 import { commandById, executeCommand } from './commands'
-import db, { thoughtspaceRuntime } from './data-providers/thoughtspace'
+import db, { type ThoughtspaceRuntimeInitOptions, thoughtspaceRuntime } from './data-providers/thoughtspace'
 import * as selection from './device/selection'
 import testFlags from './e2e/testFlags'
 import contextToThoughtId from './selectors/contextToThoughtId'
@@ -58,11 +58,12 @@ const initializeCursor = async () => {
 }
 
 /** Initialize local db and window events. */
-const initializeInternal = async () => {
+const initializeInternal = async (options?: ThoughtspaceRuntimeInitOptions) => {
   initOfflineStatusStore(/* websocket */)
   const eventHandlers = initEvents(store)
 
   const { clientId } = await thoughtspaceRuntime.init({
+    storageType: options?.storageType,
     materialization: {
       getSnapshot: () => {
         const state = store.getState()
@@ -121,8 +122,8 @@ const initializationStartedPromise = new Promise<void>(resolve => {
 })
 
 /** Initialize local db and window events. */
-export const initialize = (): ReturnType<typeof initializeInternal> => {
-  initializationPromise = initializeInternal()
+export const initialize = (options?: ThoughtspaceRuntimeInitOptions): ReturnType<typeof initializeInternal> => {
+  initializationPromise = initializeInternal(options)
   resolveInitializationStarted?.()
   resolveInitializationStarted = null
   return initializationPromise

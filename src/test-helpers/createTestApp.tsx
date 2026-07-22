@@ -5,7 +5,7 @@ import { TestBackend } from 'react-dnd-test-backend'
 import Await from '../@types/Await'
 import { clearActionCreator as clear } from '../actions/clear'
 import App from '../components/App'
-import db from '../data-providers/thoughtspace'
+import db, { ThoughtspaceStorageType } from '../data-providers/thoughtspace'
 import { initialize } from '../initialize'
 import store from '../stores/app'
 import storage from '../util/storage'
@@ -18,7 +18,7 @@ const createTestApp = async ({ tutorial }: { tutorial?: boolean } = {}) => {
   await act(async () => {
     vi.useFakeTimers({ loopLimit: 100000 })
     // calls initEvents, which must be manually cleaned up
-    const init = await initialize()
+    const init = await initialize({ storageType: ThoughtspaceStorageType.Memory })
     cleanup = init.cleanup
 
     // const root = document.body.appendChild(document.createElement('div'))
@@ -80,7 +80,7 @@ export const refreshTestApp = async () => {
   await act(async () => {
     await waitForThoughtspaceIdle()
     await store.dispatch(clear())
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
     await waitForThoughtspaceIdle()
   })
 

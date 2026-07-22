@@ -88,7 +88,7 @@ export const treecrdtRuntime = {
   init: async (options?: ThoughtspaceRuntimeInitOptions): Promise<{ clientId: string }> => {
     const clientId = await clientIdReady
     await initPermissionsStore()
-    await initTreecrdt()
+    await initTreecrdt(options?.storageType)
     await initTreecrdtThoughtspace(clientIdToReplicaId(clientId), options?.materialization)
     return { clientId }
   },

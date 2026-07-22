@@ -12,6 +12,7 @@ import { undoActionCreator as undo } from '../../actions/undo'
 import { executeCommandWithMulticursor } from '../../commands'
 import moveThoughtDownCommand from '../../commands/moveThoughtDown'
 import { HOME_TOKEN } from '../../constants'
+import { ThoughtspaceStorageType } from '../../data-providers/thoughtspace'
 import { initialize } from '../../initialize'
 import childIdsToThoughts from '../../selectors/childIdsToThoughts'
 import contextToPath from '../../selectors/contextToPath'
@@ -43,7 +44,7 @@ beforeEach(initStore)
  */
 describe('undo persistence', () => {
   it('persists undo thought change', async () => {
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
     store.dispatch([
       importText({
@@ -59,7 +60,7 @@ describe('undo persistence', () => {
     // clear and call initialize again to reload from local db (simulating page refresh)
     store.dispatch(clear())
 
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
     await vi.runAllTimersAsync()
 
     const exported = exportContext(store.getState(), [HOME_TOKEN], 'text/plain')
@@ -75,7 +76,7 @@ describe('undo persistence', () => {
   }, 10000 /* increase timeout to give time for two calls to initialize() */)
 
   it('persists undo move placement after reload', async () => {
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
     store.dispatch([
       importText({
@@ -106,7 +107,7 @@ describe('undo persistence', () => {
 
     store.dispatch(clear())
 
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
     await vi.runAllTimersAsync()
     await waitForThoughtspaceIdle()
 
@@ -119,7 +120,7 @@ describe('undo persistence', () => {
   }, 10000 /* increase timeout to give time for two calls to initialize() */)
 
   it('persists redo move placement after reload', async () => {
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
     store.dispatch([
       importText({
@@ -159,7 +160,7 @@ describe('undo persistence', () => {
 
     store.dispatch(clear())
 
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
     await vi.runAllTimersAsync()
     await waitForThoughtspaceIdle()
 
@@ -288,7 +289,7 @@ describe('undo', () => {
   })
 
   it('cursor should restore correctly after undo archive', async () => {
-    await initialize()
+    await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
     store.dispatch([newThought({ value: 'a' }), setCursor(['a']), { type: 'archiveThought' }, undo()])
 

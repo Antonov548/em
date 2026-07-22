@@ -3,6 +3,7 @@ import { toggleDropdownActionCreator as toggleDropdown } from '../../actions/tog
 import { undoActionCreator as undo } from '../../actions/undo'
 import { executeCommandWithMulticursor } from '../../commands'
 import deleteCommand from '../../commands/delete'
+import { ThoughtspaceStorageType } from '../../data-providers/thoughtspace'
 import { initialize } from '../../initialize'
 import store from '../../stores/app'
 import { addMulticursorAtFirstMatchActionCreator as addMulticursor } from '../../test-helpers/addMulticursorAtFirstMatch'
@@ -18,7 +19,7 @@ vi.mock('../../browser', async importOriginal => {
 beforeEach(initStore)
 
 it('shows the Command Center on mobile when a multicursor is active', async () => {
-  await initialize()
+  await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     importText({
@@ -36,7 +37,7 @@ it('shows the Command Center on mobile when a multicursor is active', async () =
 })
 
 it('does not show the Command Center when undoing a multicursor delete while the Undo Slider is active', async () => {
-  await initialize()
+  await initialize({ storageType: ThoughtspaceStorageType.Memory })
 
   store.dispatch([
     importText({

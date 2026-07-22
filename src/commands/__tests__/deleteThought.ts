@@ -3,6 +3,7 @@ import { clearActionCreator as clear } from '../../actions/clear'
 import { deleteThoughtWithCursorActionCreator as deleteThoughtWithCursor } from '../../actions/deleteThoughtWithCursor'
 import { importTextActionCreator as importText } from '../../actions/importText'
 import { HOME_TOKEN } from '../../constants'
+import { ThoughtspaceStorageType } from '../../data-providers/thoughtspace'
 import { initialize } from '../../initialize'
 import exportContext from '../../selectors/exportContext'
 import { getLexeme } from '../../selectors/getLexeme'
@@ -61,7 +62,7 @@ describe('mount', () => {
 // TODO: Fix test
 it.skip('delete pending descendants', async () => {
   timer.useFakeTimer()
-  initialize()
+  initialize({ storageType: ThoughtspaceStorageType.Memory })
   await timer.runAllAsync()
 
   // c will be pending after refresh
@@ -111,7 +112,7 @@ it.skip('delete pending descendants', async () => {
 
   // clear and call initialize again to reload from local db (simulating page refresh)
   store.dispatch(clear())
-  initialize()
+  initialize({ storageType: ThoughtspaceStorageType.Memory })
   await timer.runAllAsync()
 
   store.dispatch([setCursor(['a'])])
@@ -185,7 +186,7 @@ it.skip('delete pending descendants', async () => {
 // TODO: IndexedDB in tests is disabled where it breaks fake-indexeddb
 it.skip('delete many pending descendants', async () => {
   timer.useFakeTimer()
-  initialize()
+  initialize({ storageType: ThoughtspaceStorageType.Memory })
   await timer.runAllAsync()
 
   const text = `
@@ -268,7 +269,7 @@ it.skip('delete many pending descendants', async () => {
 
   // clear and call initialize again to reload from local db (simulating page refresh)
   store.dispatch(clear())
-  initialize()
+  initialize({ storageType: ThoughtspaceStorageType.Memory })
   await timer.runAllAsync()
 
   store.dispatch([setCursor(['Cybersemics'])])
