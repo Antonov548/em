@@ -5,6 +5,8 @@ import { page } from '../session'
 vi.setConfig({ testTimeout: 30000, hookTimeout: 20000 })
 
 it('handles keyboard commands while thoughtspace initialization is delayed', async () => {
+  const queuedValue = 'queued before initialization'
+
   await page.evaluateOnNewDocument(() => {
     const preloadedWindow = window as unknown as PreloadedEmWindow
     preloadedWindow.em = {
@@ -27,7 +29,8 @@ it('handles keyboard commands while thoughtspace initialization is delayed', asy
     await page.keyboard.press('Enter')
 
     await page.waitForSelector('[data-editing=true] [data-editable]')
-    expect(await getEditingText()).toBe('')
+    await page.keyboard.type(queuedValue)
+    expect(await getEditingText()).toBe(queuedValue)
   } finally {
     await page.evaluate(async () => {
       const em = window.em
@@ -35,4 +38,13 @@ it('handles keyboard commands while thoughtspace initialization is delayed', asy
       em.testFlags.preventInitialize = false
     })
   }
+
+  await page.waitForFunction(
+    async value => {
+      await window.em.testHelpers.waitForThoughtspaceRuntimeIdle()
+      return (await window.em.testHelpers.getLexemeFromThoughtspace(value))?.contexts.length
+    },
+    {},
+    queuedValue,
+  )
 })
