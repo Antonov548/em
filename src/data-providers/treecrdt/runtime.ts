@@ -95,19 +95,28 @@ export const getTreecrdtClientOptions = (config?: TreecrdtClientConfig): ClientO
   }
 }
 
-/** Waits until both local writes and materialization refreshes are stable. */
+/**
+ * Waits until both local writes and materialization refreshes are stable.
+ *
+ * The app creates one active thoughtspace per browser realm, so these shared queues intentionally serialize its one
+ * Redux integration pipeline. Client, session, persistence, and WebSocket ownership remain factory-local.
+ */
 const waitForStableIdle = async (): Promise<void> => {
   let writeVersion: number
   let materializationVersion: number
+  let firstError: unknown
+
   do {
     writeVersion = getTreecrdtWriteBarrierVersion()
     materializationVersion = getMaterializedThoughtsToStoreVersion()
-    await waitForTreecrdtWriteBarrier()
-    await waitForMaterializedThoughtsToStore()
+    const results = await Promise.allSettled([waitForTreecrdtWriteBarrier(), waitForMaterializedThoughtsToStore()])
+    firstError ??= results.find(result => result.status === 'rejected')?.reason
   } while (
     writeVersion !== getTreecrdtWriteBarrierVersion() ||
     materializationVersion !== getMaterializedThoughtsToStoreVersion()
   )
+
+  if (firstError) throw firstError
 }
 
 /** Creates one TreeCRDT client owner and its bound app thoughtspace. */
@@ -127,8 +136,12 @@ export const createTreecrdtThoughtspace = ({
   let client: TreecrdtClient | null = null
   let unsubscribeMaterialization: (() => void) | null = null
   let lifecycleTail: Promise<void> = Promise.resolve()
+  let latestLifecycle: Promise<unknown> = lifecycleTail
   let initPromise: Promise<InitResult> | null = null
   let dropPromise: Promise<void> | null = null
+  let persistenceVersion = 0
+  const pendingPersistence = new Map<number, Promise<void>>()
+  const persistenceErrors = new Map<number, unknown>()
   const provider = createTreecrdtDataProvider()
   const websocketSync = createTreecrdtWebSocketSync()
 
@@ -146,8 +159,57 @@ export const createTreecrdtThoughtspace = ({
         }
   }
 
-  /** Detaches the provider and releases all resources owned by this thoughtspace. */
-  const dropClient = async (): Promise<void> => {
+  /** Waits for factory-local persistence calls registered through the requested version. */
+  const waitForPersistenceThrough = async (version: number): Promise<void> => {
+    const pending = [...pendingPersistence]
+      .filter(([persistenceId]) => persistenceId <= version)
+      .map(([, promise]) => promise)
+    await Promise.allSettled(pending)
+
+    const failure = [...persistenceErrors].find(([persistenceId]) => persistenceId <= version)
+    for (const persistenceId of persistenceErrors.keys()) {
+      if (persistenceId <= version) persistenceErrors.delete(persistenceId)
+    }
+    if (failure) throw failure[1]
+  }
+
+  /** Drains local persistence first, then the shared write/materialization pipeline even if either reports an error. */
+  const waitForRuntimeWorkThrough = async (version: number): Promise<void> => {
+    let firstError: unknown
+
+    try {
+      await waitForPersistenceThrough(version)
+    } catch (error) {
+      firstError = error
+    }
+    try {
+      await waitForStableIdle()
+    } catch (error) {
+      firstError ??= error
+    }
+
+    if (firstError) throw firstError
+  }
+
+  /** Waits until no newer factory-local persistence was registered while the current snapshot drained. */
+  const waitForRuntimeIdle = async (): Promise<void> => {
+    let firstError: unknown
+    let version: number
+
+    do {
+      version = persistenceVersion
+      try {
+        await waitForRuntimeWorkThrough(version)
+      } catch (error) {
+        firstError ??= error
+      }
+    } while (version !== persistenceVersion)
+
+    if (firstError) throw firstError
+  }
+
+  /** Stops ingress, drains captured work, and releases all resources owned by this thoughtspace. */
+  const dropClient = async (persistenceVersionAtDrop: number): Promise<void> => {
     const errors: unknown[] = []
     /** Records cleanup failures without skipping later owned resources. */
     const captureError = async (work: () => void | Promise<unknown>): Promise<void> => {
@@ -166,6 +228,9 @@ export const createTreecrdtThoughtspace = ({
 
     await captureError(websocketSync.stop)
     await captureError(() => unsubscribe?.())
+    await captureError(() => withIdleTimeout(waitForRuntimeWorkThrough(persistenceVersionAtDrop)))
+    // Writes already running during the first stop may have produced buffered local ops.
+    await captureError(websocketSync.stop)
 
     let clientReleased = clientToDrop === null
     if (clientToDrop) {
@@ -192,8 +257,10 @@ export const createTreecrdtThoughtspace = ({
     if (dropPromise) return dropPromise
 
     initPromise = null
-    const promise = lifecycleTail.then(dropClient)
+    const persistenceVersionAtDrop = persistenceVersion
+    const promise = lifecycleTail.then(() => dropClient(persistenceVersionAtDrop))
     dropPromise = promise
+    latestLifecycle = promise
     lifecycleTail = promise.then(
       () => undefined,
       () => undefined,
@@ -206,17 +273,40 @@ export const createTreecrdtThoughtspace = ({
 
   const db: DataProvider = { ...provider.db, clear: drop }
 
-  /** Persists push queue batches through the bound provider and forwards local ops to remote sync. */
-  const persistPushQueueBatches = (batches: readonly PersistTreecrdtBatch[]): Promise<void> =>
-    withTreecrdtWriteBarrier(async () => {
-      for (const batch of batches) {
-        const { local: isLocal, ...updates } = batch
-        const maybeOps = await db.updateThoughts(updates)
-        if (isLocal && Array.isArray(maybeOps) && maybeOps.length > 0) {
-          void websocketSync.pushLocalOps(maybeOps as readonly Operation[])
+  /** Binds each persistence call to the exact session ordered before it and tracks it before any async wait. */
+  const persistPushQueueBatches = (batches: readonly PersistTreecrdtBatch[]): Promise<void> => {
+    persistenceVersion += 1
+    const persistenceId = persistenceVersion
+    const precedingLifecycle = latestLifecycle
+    const persistence = (async () => {
+      await precedingLifecycle
+      const sessionDb = await provider.waitForSession()
+
+      return withTreecrdtWriteBarrier(async () => {
+        for (const batch of batches) {
+          const { local: isLocal, ...updates } = batch
+          const maybeOps = await sessionDb.updateThoughts(updates)
+          if (isLocal && Array.isArray(maybeOps) && maybeOps.length > 0) {
+            void websocketSync.pushLocalOps(maybeOps as readonly Operation[])
+          }
         }
-      }
-    })
+      })
+    })()
+
+    const trackedPersistence = persistence.then(
+      () => {
+        pendingPersistence.delete(persistenceId)
+      },
+      error => {
+        pendingPersistence.delete(persistenceId)
+        persistenceErrors.set(persistenceId, error)
+        throw error
+      },
+    )
+    pendingPersistence.set(persistenceId, trackedPersistence)
+    void trackedPersistence.catch(() => undefined)
+    return trackedPersistence
+  }
 
   /** Opens and binds one client. Lifecycle serialization provides retryable single-flight behavior. */
   const initializeClient = async (options?: ThoughtspaceRuntimeInitOptions): Promise<InitResult> => {
@@ -253,6 +343,7 @@ export const createTreecrdtThoughtspace = ({
     dropPromise = null
     const promise = lifecycleTail.then(() => initializeClient(options))
     initPromise = promise
+    latestLifecycle = promise
     lifecycleTail = promise.then(
       () => undefined,
       () => undefined,
@@ -268,7 +359,7 @@ export const createTreecrdtThoughtspace = ({
     acquireAccess,
     init,
     drop,
-    waitForIdle: (): Promise<void> => withIdleTimeout(waitForStableIdle()),
+    waitForIdle: (): Promise<void> => withIdleTimeout(waitForRuntimeIdle()),
     persistPushQueueBatches,
   }
 }

@@ -417,9 +417,13 @@ const createTreecrdtDataProvider = () => {
   /** Dispatches public reads to the active session without exposing its client. */
   const getActiveDb = (): TreecrdtSessionDataProvider => getActiveSession().db
 
+  /** Captures the exact session provider that is active now or becomes active after delayed initialization. */
+  const waitForSession = async (): Promise<TreecrdtSessionDataProvider> =>
+    (activeSession ?? (await sessionGate.promise)).db
+
   /** Dispatches public writes through the startup gate, retaining whichever session releases that write. */
   const updateThoughts: DataProvider['updateThoughts'] = async updates =>
-    (await sessionGate.promise).db.updateThoughts(updates)
+    (await waitForSession()).updateThoughts(updates)
 
   /** Detaches the current session, rejects startup writes, and rotates to a fresh gate. */
   const resetSession = (reason: unknown): void => {
@@ -480,6 +484,7 @@ const createTreecrdtDataProvider = () => {
     db,
     bindSession,
     resetSession,
+    waitForSession,
   }
 }
 
