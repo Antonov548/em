@@ -13,7 +13,7 @@ export type BootstrapConfigOverrides = Partial<BootstrapConfig>
 
 /** Bootstrap configuration and test flags that may be injected before the application initializes. */
 export type PreloadedWindowEm = BootstrapConfigOverrides & {
-  testFlags?: Partial<WindowEm['testFlags']>
+  testFlags?: Partial<Pick<WindowEm['testFlags'], 'preventInitialize' | 'replicationDelay'>>
 }
 
 /** Explicit pre-initialization view of window for bootstrap writers. */
