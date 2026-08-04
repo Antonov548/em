@@ -1,5 +1,22 @@
 import { UnknownAction } from 'redux'
+import type { TreecrdtRuntimeConfig } from '../data-providers/treecrdt/runtime'
 import Thunk from './Thunk'
+
+/** Application configuration resolved before runtime modules are evaluated. */
+export type BootstrapConfig = Readonly<{
+  treecrdt: TreecrdtRuntimeConfig
+}>
+
+type BootstrapConfigOverrides = Partial<BootstrapConfig>
+
+const defaultTreecrdtConfig: TreecrdtRuntimeConfig = { tabPolicy: 'single' }
+
+const bootstrapConfig: BootstrapConfig = {
+  treecrdt:
+    typeof window === 'undefined' ? defaultTreecrdtConfig : (window.emConfig?.treecrdt ?? defaultTreecrdtConfig),
+}
+
+export default bootstrapConfig
 
 declare global {
   interface Document {
@@ -8,6 +25,7 @@ declare global {
   }
 
   interface Window {
+    emConfig?: BootstrapConfigOverrides
     em: unknown
     debug: (message: string) => void
     // FIX: Used only in puppeteer test environment. So need way to switch global context based on environment.
