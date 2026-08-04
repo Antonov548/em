@@ -1,7 +1,6 @@
 import { UnknownAction } from 'redux'
-import Thunk from './Thunk'
-
 import type { TreecrdtRuntimeConfig } from '../data-providers/treecrdt/runtime'
+import Thunk from './Thunk'
 
 /** Application configuration resolved before runtime modules are evaluated. */
 export type BootstrapConfig = Readonly<{

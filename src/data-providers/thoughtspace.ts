@@ -1,7 +1,7 @@
+import bootstrapConfig from '../@types'
 import type Index from '../@types/IndexType'
 import type Lexeme from '../@types/Lexeme'
 import type Thought from '../@types/Thought'
-import bootstrapConfig from '../@types'
 import type { DataProvider } from './DataProvider'
 import createTreecrdtRuntime from './treecrdt/runtime'
 import treecrdtDb from './treecrdt/thoughtspace'
