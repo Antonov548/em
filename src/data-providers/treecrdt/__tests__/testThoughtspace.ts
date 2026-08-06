@@ -2,14 +2,15 @@ import type ThoughtId from '../../../@types/ThoughtId'
 import type Timestamp from '../../../@types/Timestamp'
 import { EM_TOKEN, SETTINGS_TOKEN, SETTINGS_VALUE } from '../../../constants'
 import hashThought from '../../../util/hashThought'
-import createTreecrdtThoughtspace from '../runtime'
+import createTreecrdtThoughtspace, { type TreecrdtRuntimeConfig } from '../runtime'
 import { createIndexedChildrenMap } from '../thoughtspace'
 
-/** Initializes an isolated in-memory TreeCRDT client and thoughtspace for unit tests. */
-const treecrdt = createTreecrdtThoughtspace({
+const treecrdtConfig: TreecrdtRuntimeConfig = {
   client: { storage: 'memory', runtime: 'direct' },
   tabPolicy: 'multiple',
-})
+}
+/** Initializes an isolated in-memory TreeCRDT client and thoughtspace for unit tests. */
+const treecrdt = createTreecrdtThoughtspace(() => treecrdtConfig)
 const treecrdtThoughtspace = treecrdt.db
 
 /** Initializes the bound in-memory test runtime. */
@@ -147,14 +148,16 @@ it('queues writes issued before initialization and applies them to the bound cli
 })
 
 it('keeps separately created thoughtspace sessions isolated', async () => {
-  const first = createTreecrdtThoughtspace({
+  const firstConfig: TreecrdtRuntimeConfig = {
     client: { storage: 'memory', runtime: 'direct', docId: 'isolated-first' },
     tabPolicy: 'multiple',
-  })
-  const second = createTreecrdtThoughtspace({
+  }
+  const secondConfig: TreecrdtRuntimeConfig = {
     client: { storage: 'memory', runtime: 'direct', docId: 'isolated-second' },
     tabPolicy: 'multiple',
-  })
+  }
+  const first = createTreecrdtThoughtspace(() => firstConfig)
+  const second = createTreecrdtThoughtspace(() => secondConfig)
 
   try {
     await first.init()

@@ -95,6 +95,16 @@ const getTreecrdtClientOptions = (config?: TreecrdtClientConfig): ClientOptions 
   }
 }
 
+/** Rejects TreeCRDT settings that cannot safely support the requested tab policy. */
+const assertValidTreecrdtRuntimeConfig = ({ client, tabPolicy }: TreecrdtRuntimeConfig): void => {
+  const storage = client?.storage ?? 'persistent'
+  const workerRuntime = client?.runtime ?? 'dedicated-worker'
+
+  if (tabPolicy === 'multiple' && (storage !== 'memory' || workerRuntime !== 'direct')) {
+    throw new Error('Multiple-tab TreeCRDT access requires in-memory storage with the direct runtime.')
+  }
+}
+
 /** Waits until both local writes and materialization refreshes are stable. */
 const waitForStableIdle = async (): Promise<void> => {
   let writeVersion: number
@@ -110,18 +120,8 @@ const waitForStableIdle = async (): Promise<void> => {
   )
 }
 
-/** Creates one TreeCRDT client owner and its bound app thoughtspace. */
-const createTreecrdtThoughtspace = ({
-  client: clientConfig,
-  tabPolicy,
-}: TreecrdtRuntimeConfig): TreecrdtThoughtspace => {
-  const storage = clientConfig?.storage ?? 'persistent'
-  const workerRuntime = clientConfig?.runtime ?? 'dedicated-worker'
-
-  if (tabPolicy === 'multiple' && (storage !== 'memory' || workerRuntime !== 'direct')) {
-    throw new Error('Multiple-tab TreeCRDT access requires in-memory storage with the direct runtime.')
-  }
-
+/** Creates an inert TreeCRDT client owner whose configuration and external resources are resolved during async startup. */
+const createTreecrdtThoughtspace = (resolveConfig: () => TreecrdtRuntimeConfig): TreecrdtThoughtspace => {
   type InitResult = { clientId: string }
 
   let client: TreecrdtClient | null = null
@@ -129,12 +129,31 @@ const createTreecrdtThoughtspace = ({
   let lifecycleTail: Promise<void> = Promise.resolve()
   let initPromise: Promise<InitResult> | null = null
   let dropPromise: Promise<void> | null = null
+  let startupConfig: TreecrdtRuntimeConfig | undefined
   const provider = createTreecrdtDataProvider()
   const websocketSync = createTreecrdtWebSocketSync()
 
+  /** Resolves and snapshots configuration on the first async lifecycle call. */
+  const getStartupConfig = (): TreecrdtRuntimeConfig => {
+    if (startupConfig) return startupConfig
+
+    const config = resolveConfig()
+    const snapshot: TreecrdtRuntimeConfig =
+      config.tabPolicy === 'multiple'
+        ? { tabPolicy: 'multiple', client: { ...config.client } }
+        : {
+            tabPolicy: 'single',
+            ...(config.client ? { client: { ...config.client } } : {}),
+          }
+    startupConfig = snapshot
+    return snapshot
+  }
+
   /** Applies em's tab policy before the TreeCRDT client is opened. */
   const acquireAccess = async (): Promise<ThoughtspaceAccessResult> => {
-    if (tabPolicy === 'multiple') return { status: 'acquired' }
+    const config = getStartupConfig()
+    assertValidTreecrdtRuntimeConfig(config)
+    if (config.tabPolicy === 'multiple') return { status: 'acquired' }
 
     const lockStatus = await acquireTreecrdtSessionLock()
 
@@ -209,10 +228,12 @@ const createTreecrdtThoughtspace = ({
     let nextUnsubscribeMaterialization: (() => void) | null = null
 
     try {
+      const config = getStartupConfig()
+      assertValidTreecrdtRuntimeConfig(config)
       if (client) throw new Error('TreeCRDT client cleanup is incomplete. Retry drop before initialization.')
       const clientId = await clientIdReady
       await initPermissionsStore()
-      nextClient = await createTreecrdtClient(getTreecrdtClientOptions(clientConfig))
+      nextClient = await createTreecrdtClient(getTreecrdtClientOptions(config.client))
       nextUnsubscribeMaterialization = await provider.bindClient(
         nextClient,
         clientIdToReplicaId(clientId),

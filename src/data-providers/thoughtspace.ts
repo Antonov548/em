@@ -1,9 +1,9 @@
+import type { PreloadedEmWindow } from '../@types'
 import type Index from '../@types/IndexType'
 import type Lexeme from '../@types/Lexeme'
 import type Thought from '../@types/Thought'
-import bootstrapConfig from '../bootstrapConfig'
 import type { DataProvider } from './DataProvider'
-import createTreecrdtThoughtspace from './treecrdt/runtime'
+import createTreecrdtThoughtspace, { type TreecrdtRuntimeConfig } from './treecrdt/runtime'
 
 export type PersistThoughtspaceBatch = Parameters<DataProvider['updateThoughts']>[0] & {
   local?: boolean
@@ -47,7 +47,11 @@ export interface ThoughtspaceRuntime {
   persistPushQueueBatches: (batches: readonly PersistThoughtspaceBatch[]) => Promise<void>
 }
 
-const treecrdtThoughtspace = createTreecrdtThoughtspace(bootstrapConfig.treecrdt)
+const defaultTreecrdtConfig: TreecrdtRuntimeConfig = { tabPolicy: 'single' }
+const treecrdtThoughtspace = createTreecrdtThoughtspace(() => {
+  const preloadedWindow = typeof window === 'undefined' ? undefined : (window as unknown as PreloadedEmWindow)
+  return preloadedWindow?.em?.treecrdt ?? defaultTreecrdtConfig
+})
 
 /** The active data provider backing the current app thoughtspace. */
 export const db: DataProvider = treecrdtThoughtspace.db

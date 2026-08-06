@@ -3,13 +3,10 @@ import type { TreecrdtRuntimeConfig } from '../data-providers/treecrdt/runtime'
 import type { WindowEm } from '../initialize'
 import Thunk from './Thunk'
 
-/** Application configuration resolved before runtime modules are evaluated. */
-export type BootstrapConfig = Readonly<{
-  treecrdt: TreecrdtRuntimeConfig
-}>
-
 /** Bootstrap properties that may be injected onto window.em before the application bundle evaluates. */
-export type BootstrapConfigOverrides = Partial<BootstrapConfig>
+export type BootstrapConfigOverrides = Readonly<{
+  treecrdt?: TreecrdtRuntimeConfig
+}>
 
 /** Explicit pre-initialization view of window for bootstrap writers. */
 export type PreloadedEmWindow = {

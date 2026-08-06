@@ -1,5 +1,5 @@
 import { EM_TOKEN } from '../../../constants'
-import createTreecrdtThoughtspace from '../runtime'
+import createTreecrdtThoughtspace, { type TreecrdtRuntimeConfig } from '../runtime'
 
 const { mockAcquireTreecrdtSessionLock, mockCreateTreecrdtClient } = vi.hoisted(() => ({
   mockAcquireTreecrdtSessionLock: vi.fn(),
@@ -24,15 +24,18 @@ const emptyUpdates = {
 }
 
 /** Creates the standard in-memory thoughtspace used by lifecycle tests. */
-const createMemoryThoughtspace = (docId?: string) =>
-  createTreecrdtThoughtspace({
+const createMemoryThoughtspace = (docId?: string) => {
+  const config: TreecrdtRuntimeConfig = {
     client: {
       storage: 'memory',
       runtime: 'direct',
       ...(docId === undefined ? {} : { docId }),
     },
     tabPolicy: 'multiple',
-  })
+  }
+
+  return createTreecrdtThoughtspace(() => config)
+}
 
 beforeAll(async () => {
   const actual = await vi.importActual<TreecrdtModule>('@treecrdt/wa-sqlite')
@@ -54,46 +57,58 @@ it.each([
   ['unsupported', { status: 'blocked', reason: 'unsupported' }],
 ] as const)('maps the %s session-lock status to thoughtspace access', async (lockStatus, access) => {
   mockAcquireTreecrdtSessionLock.mockResolvedValue(lockStatus)
-  const treecrdtThoughtspace = createTreecrdtThoughtspace({ tabPolicy: 'single' })
+  const treecrdtThoughtspace = createTreecrdtThoughtspace(() => ({ tabPolicy: 'single' }))
 
   await expect(treecrdtThoughtspace.acquireAccess()).resolves.toEqual(access)
   expect(mockAcquireTreecrdtSessionLock).toHaveBeenCalledWith()
 })
 
 it('does not require a session lock when multiple tabs are allowed', async () => {
-  const treecrdtThoughtspace = createTreecrdtThoughtspace({
+  const config: TreecrdtRuntimeConfig = {
     client: { storage: 'memory', runtime: 'direct' },
     tabPolicy: 'multiple',
-  })
+  }
+  const treecrdtThoughtspace = createTreecrdtThoughtspace(() => config)
 
   await expect(treecrdtThoughtspace.acquireAccess()).resolves.toEqual({ status: 'acquired' })
   expect(mockAcquireTreecrdtSessionLock).not.toHaveBeenCalled()
 })
 
-it('rejects unsupported multiple-tab client settings at both the type and runtime boundaries', () => {
+it('rejects unsupported multiple-tab client settings at both async startup boundaries', async () => {
   // Pre-bootstrap configuration crosses a JavaScript boundary, so retain the runtime guard in addition to the type.
   // @ts-expect-error Persistent dedicated-worker storage is incompatible with multiple-tab access.
-  const invalidConfig: Parameters<typeof createTreecrdtThoughtspace>[0] = {
+  const invalidConfig: TreecrdtRuntimeConfig = {
     client: { storage: 'persistent', runtime: 'dedicated-worker' },
     tabPolicy: 'multiple',
   }
+  const treecrdtThoughtspace = createTreecrdtThoughtspace(() => invalidConfig)
 
-  expect(() => createTreecrdtThoughtspace(invalidConfig)).toThrow(
+  await expect(treecrdtThoughtspace.acquireAccess()).rejects.toThrow(
     'Multiple-tab TreeCRDT access requires in-memory storage with the direct runtime.',
   )
+  const queuedWriteExpectation = expect(treecrdtThoughtspace.db.updateThoughts(emptyUpdates)).rejects.toThrow(
+    'Multiple-tab TreeCRDT access requires in-memory storage with the direct runtime.',
+  )
+  await expect(treecrdtThoughtspace.init()).rejects.toThrow(
+    'Multiple-tab TreeCRDT access requires in-memory storage with the direct runtime.',
+  )
+  await queuedWriteExpectation
+  expect(mockAcquireTreecrdtSessionLock).not.toHaveBeenCalled()
+  expect(mockCreateTreecrdtClient).not.toHaveBeenCalled()
 })
 
 it('maps em persistent storage to TreeCRDT OPFS client options', async () => {
   const stopAfterOptions = new Error('stop after capturing client options')
   mockCreateTreecrdtClient.mockRejectedValueOnce(stopAfterOptions)
-  const treecrdtThoughtspace = createTreecrdtThoughtspace({
+  const config: TreecrdtRuntimeConfig = {
     client: {
       storage: 'persistent',
       runtime: 'dedicated-worker',
       docId: 'persistent-doc',
     },
     tabPolicy: 'single',
-  })
+  }
+  const treecrdtThoughtspace = createTreecrdtThoughtspace(() => config)
 
   await expect(treecrdtThoughtspace.init()).rejects.toBe(stopAfterOptions)
   expect(mockCreateTreecrdtClient).toHaveBeenCalledWith({
@@ -107,14 +122,23 @@ it('maps em persistent storage to TreeCRDT OPFS client options', async () => {
   })
 })
 
-it('creates the client lazily', async () => {
-  const treecrdtThoughtspace = createMemoryThoughtspace('memory-doc')
+it('snapshots configuration once without opening the client before init', async () => {
+  const config = {
+    client: { storage: 'memory' as const, runtime: 'direct' as const, docId: 'memory-doc' },
+    tabPolicy: 'multiple' as const,
+  }
+  const resolveConfig = vi.fn(() => config)
+  const treecrdtThoughtspace = createTreecrdtThoughtspace(resolveConfig)
 
+  expect(resolveConfig).not.toHaveBeenCalled()
   expect(mockCreateTreecrdtClient).not.toHaveBeenCalled()
   await treecrdtThoughtspace.acquireAccess()
+  expect(resolveConfig).toHaveBeenCalledTimes(1)
   expect(mockCreateTreecrdtClient).not.toHaveBeenCalled()
 
+  config.client.docId = 'changed-doc'
   await treecrdtThoughtspace.init()
+  expect(resolveConfig).toHaveBeenCalledTimes(1)
   expect(mockCreateTreecrdtClient).toHaveBeenCalledTimes(1)
   expect(mockCreateTreecrdtClient).toHaveBeenCalledWith({
     storage: { type: 'memory' },
