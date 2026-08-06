@@ -46,7 +46,10 @@ export interface ThoughtspaceRuntime {
   persistPushQueueBatches: (batches: readonly PersistThoughtspaceBatch[]) => Promise<void>
 }
 
-const treecrdtThoughtspace = createTreecrdtThoughtspace({ tabPolicy: 'single', client: { storage: 'persistent', runtime: 'dedicated-worker' } })
+const treecrdtThoughtspace = createTreecrdtThoughtspace({
+  tabPolicy: 'single',
+  client: { storage: 'persistent', runtime: 'dedicated-worker' },
+})
 
 /** The active data provider backing the current app thoughtspace. */
 export const db: DataProvider = treecrdtThoughtspace.db
