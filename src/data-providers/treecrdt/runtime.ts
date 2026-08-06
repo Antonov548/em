@@ -145,6 +145,7 @@ const createTreecrdtThoughtspace = (resolveConfig: () => TreecrdtRuntimeConfig):
             tabPolicy: 'single',
             ...(config.client ? { client: { ...config.client } } : {}),
           }
+    assertValidTreecrdtRuntimeConfig(snapshot)
     startupConfig = snapshot
     return snapshot
   }
@@ -152,7 +153,6 @@ const createTreecrdtThoughtspace = (resolveConfig: () => TreecrdtRuntimeConfig):
   /** Applies em's tab policy before the TreeCRDT client is opened. */
   const acquireAccess = async (): Promise<ThoughtspaceAccessResult> => {
     const config = getStartupConfig()
-    assertValidTreecrdtRuntimeConfig(config)
     if (config.tabPolicy === 'multiple') return { status: 'acquired' }
 
     const lockStatus = await acquireTreecrdtSessionLock()
@@ -229,7 +229,6 @@ const createTreecrdtThoughtspace = (resolveConfig: () => TreecrdtRuntimeConfig):
 
     try {
       const config = getStartupConfig()
-      assertValidTreecrdtRuntimeConfig(config)
       if (client) throw new Error('TreeCRDT client cleanup is incomplete. Retry drop before initialization.')
       const clientId = await clientIdReady
       await initPermissionsStore()
