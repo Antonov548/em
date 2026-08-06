@@ -1,7 +1,6 @@
 import type Index from '../@types/IndexType'
 import type Lexeme from '../@types/Lexeme'
 import type Thought from '../@types/Thought'
-import bootstrapConfig from '../bootstrapConfig'
 import type { DataProvider } from './DataProvider'
 import createTreecrdtThoughtspace from './treecrdt/runtime'
 
@@ -47,7 +46,7 @@ export interface ThoughtspaceRuntime {
   persistPushQueueBatches: (batches: readonly PersistThoughtspaceBatch[]) => Promise<void>
 }
 
-const treecrdtThoughtspace = createTreecrdtThoughtspace(bootstrapConfig.treecrdt)
+const treecrdtThoughtspace = createTreecrdtThoughtspace({ tabPolicy: 'single', client: { storage: 'persistent', runtime: 'dedicated-worker' } })
 
 /** The active data provider backing the current app thoughtspace. */
 export const db: DataProvider = treecrdtThoughtspace.db
